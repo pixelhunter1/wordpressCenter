@@ -66,6 +66,7 @@ enum Runtime {
     static var mailPlugin: URL { root.appendingPathComponent("wpcenter-mail.php") }
     static var mailpit: URL { root.appendingPathComponent("mailpit") }
     static var sharePlugin: URL { root.appendingPathComponent("wpcenter-share.php") }
+    static var updatesPlugin: URL { root.appendingPathComponent("wpcenter-updates.php") }
     static var cloudflared: URL { root.appendingPathComponent("cloudflared") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
@@ -847,7 +848,7 @@ final class SiteStore: ObservableObject {
     func installLocalHelpers(for site: Site) {
         let dir = site.folder.appendingPathComponent("wp-content/mu-plugins")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for helper in [Runtime.autologin, Runtime.mailPlugin, Runtime.sharePlugin] {
+        for helper in [Runtime.autologin, Runtime.mailPlugin, Runtime.sharePlugin, Runtime.updatesPlugin] {
             let target = dir.appendingPathComponent(helper.lastPathComponent)
             try? FileManager.default.removeItem(at: target)
             try? FileManager.default.copyItem(at: helper, to: target)

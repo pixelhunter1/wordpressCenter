@@ -44,7 +44,7 @@ cp -R "$PHP_DIR" "$R/php"
 cp -R "$STUDIO/cli/wp-files/latest/wordpress" "$R/wordpress"
 cp -R "$STUDIO/cli/wp-files/sqlite-database-integration" "$R/sqlite-database-integration"
 cp "$STUDIO/cli/wp-files/wp-cli/wp-cli.phar" "$R/wp-cli.phar"
-cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php Runtime/wpcenter-collation.php Runtime/wpcenter-mail.php Runtime/wpcenter-share.php "$R/"
+cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php Runtime/wpcenter-collation.php Runtime/wpcenter-mail.php Runtime/wpcenter-share.php Runtime/wpcenter-updates.php "$R/"
 cp "$MAILPIT" "$R/mailpit" && chmod u+w "$R/mailpit"
 cp "$CLOUDFLARED" "$R/cloudflared" && chmod u+w "$R/cloudflared"
 

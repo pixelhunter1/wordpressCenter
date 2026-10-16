@@ -53,6 +53,7 @@ open "dist/WP Center.app"                               # run the GUI
   - `wpcenter-autologin.php`: a mu-plugin copied into every site. It accepts a one-time, 60-second token stored only as a SHA-256 transient, and only works in the `local` environment and from loopback.
   - `db-check.php`: tests the DB connection and provisions the database and user.
   - `router.php`: the router for PHP's built-in server.
+  - `wpcenter-updates.php`: a mu-plugin copied like the autologin one. It works around a WordPress 7.1 bug: on the Plugins page `updatePluginError` reads `$card.attr()` while `$card` is undefined, so one failed plugin update (e.g. a licensed plugin answering "Unauthorized") locks the update queue and the rest stay "Updating…" forever. Remove it once core fixes this.
 
 **Export to cPanel** drives the WPvivid plugin installed in the site, so the backup format always matches the WPvivid on the server.
 - WPvivid only registers its DB-dump hooks under `is_admin()`, so the script calls `load_admin()`.
