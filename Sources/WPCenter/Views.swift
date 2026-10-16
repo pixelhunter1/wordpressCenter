@@ -806,175 +806,129 @@ struct NewSiteView: View {
     @State private var test: (ok: Bool, text: String)?
     @State private var error: String?
     @State private var showCPanel = false
-    @State private var showAdvanced = false
 
     private var server: LocalServer { LocalServer(db) }
     private var usesLocalServer: Bool { db.engine.needsServer && db.managed }
 
+    // Formulário agrupado, como as folhas da Apple: rótulos à esquerda, ajuda nos rodapés das secções.
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    siteCard
-                    accessCard
-                    databaseCard
-                }
-                .padding(20)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Novo site WordPress")
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+            Form {
+                siteSection
+                accessSection
+                databaseSection
             }
-            Divider()
+            .formStyle(.grouped)
             footer
         }
-        .frame(width: 640, height: 720)
+        .frame(width: 540, height: 640)
         .sheet(isPresented: $showCPanel) { CPanelView() }
         .onChange(of: db) { test = nil }
+        .onChange(of: db.engine) { _, engine in db.targetVersion = engine.defaultVersion }
         .onAppear {
             // Reutiliza o último utilizador por conveniência; nunca a palavra-passe.
             if Prefs.customAdminUser == nil, let last = store.sites.last { user = last.adminUser }
         }
     }
 
-    // MARK: Partes
+    // MARK: Secções
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            SiteIcon(size: 44)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Novo site WordPress").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
-                Text("WordPress \(Runtime.bundledWordPressVersion) · PHP \(Runtime.phpVersion), no seu Mac e sem serviços externos.")
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(20)
-    }
-
-    private var siteCard: some View {
-        FormCard(title: "Site", symbol: "globe") {
-            FormRow("Nome") {
-                TextField(L("O meu site"), text: $name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome do site")
-            }
-            FormRow("Guardar em") {
+    private var siteSection: some View {
+        Section("Site") {
+            TextField("Nome", text: $name, prompt: Text("O meu site")).accessibilityLabel("Nome do site")
+            LabeledContent("Pasta") {
                 HStack {
                     Text(directory.appendingPathComponent(SiteStore.slug(name)).path)
                         .lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Escolher…", action: chooseDirectory)
                 }
             }
         }
     }
 
-    private var accessCard: some View {
-        FormCard(title: "Acesso ao WordPress", symbol: "person.badge.key",
-                 footnote: "Para entrar no painel. O botão WP Admin da app entra sem a escrever.") {
-            FormRow("Utilizador") {
-                TextField("utilizador", text: $user).textFieldStyle(.roundedBorder).accessibilityLabel("Utilizador do WordPress")
-            }
-            FormRow("Palavra-passe") {
+    private var accessSection: some View {
+        Section {
+            TextField("Utilizador", text: $user).accessibilityLabel("Utilizador do WordPress")
+            LabeledContent("Palavra-passe") {
                 HStack(spacing: 6) {
-                    TextField("", text: $password).textFieldStyle(.roundedBorder).font(.body.monospaced())
-                        .accessibilityLabel("Palavra-passe do WordPress")
+                    TextField("Palavra-passe", text: $password).labelsHidden().font(.body.monospaced())
                     Button { password = SiteStore.strongPassword(length: 20) } label: { Image(systemName: "arrow.clockwise").iconHitTarget() }
                         .buttonStyle(.borderless).help("Gerar outra palavra-passe").accessibilityLabel("Gerar outra palavra-passe")
                     CopyButton(value: password, what: L("palavra-passe"))
                 }
             }
+        } header: {
+            Text("Acesso ao WordPress")
+        } footer: {
+            Text("O botão WP Admin da app entra sem a escrever.")
         }
     }
 
-    private var databaseCard: some View {
-        FormCard(title: "Base de dados", symbol: "cylinder.split.1x2",
-                 footnote: usesLocalServer
-                    ? "Base de dados, utilizador e palavra-passe criados ao acaso, no formato do cPanel (prefixo_nome). Escolha a versão do seu servidor para migrar com o WPvivid sem surpresas."
-                    : nil) {
-            HStack(spacing: 8) {
-                ForEach(DatabaseEngine.allCases) { engine in
-                    EngineTile(engine: engine, selected: db.engine == engine) {
-                        db.engine = engine
-                        db.targetVersion = engine.defaultVersion
-                    }
-                }
+    private var databaseSection: some View {
+        Section {
+            Picker("Motor", selection: $db.engine) {
+                ForEach(DatabaseEngine.allCases.filter(\.isAvailable)) { Text($0.title).tag($0) }
             }
-            .padding(.bottom, 4)
-
-            Text(db.engine.summary).font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             if db.engine.needsServer {
-                FormRow("Versão") {
-                    HStack {
-                        Picker("Versão", selection: $db.targetVersion) {
-                            ForEach(db.engine.cpanelVersions, id: \.self) { Text($0).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .fixedSize()
-                        Spacer()
-                        Button("Versões do cPanel…") { showCPanel = true }.buttonStyle(.link).font(.callout)
-                    }
+                Picker("Versão", selection: $db.targetVersion) {
+                    ForEach(db.engine.cpanelVersions, id: \.self) { Text($0).tag($0) }
                 }
-                if db.managed { serverStatus }
-                DisclosureGroup("Usar um servidor de base de dados existente", isExpanded: $showAdvanced) {
-                    advancedFields.padding(.top, 8)
+                Toggle("Usar um servidor de base de dados existente", isOn: Binding(
+                    get: { !db.managed }, set: { db.managed = !$0 }))
+                if db.managed { serverStatus } else { existingServerFields }
+            }
+        } header: {
+            Text("Base de dados")
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(db.engine.summary)
+                if usesLocalServer {
+                    Text("Base de dados, utilizador e palavra-passe criados ao acaso, no formato do cPanel (prefixo_nome).")
                 }
-                .onChange(of: showAdvanced) { _, open in db.managed = !open }
-                .padding(.top, 4)
+                if db.engine.needsServer {
+                    Button("Versões do cPanel…") { showCPanel = true }.buttonStyle(.link)
+                }
             }
         }
     }
 
-    @ViewBuilder private var advancedFields: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            FormRow("Servidor") {
-                HStack {
-                    TextField("127.0.0.1", text: $db.host).textFieldStyle(.roundedBorder).accessibilityLabel("Servidor da base de dados")
-                    TextField("Porta", value: $db.port, format: .number.grouping(.never))
-                        .textFieldStyle(.roundedBorder).frame(width: 70).accessibilityLabel("Porta")
+    @ViewBuilder private var existingServerFields: some View {
+        TextField("Servidor", text: $db.host, prompt: Text("127.0.0.1"))
+        TextField("Porta", value: $db.port, format: .number.grouping(.never))
+        TextField("Nome da base de dados", text: $db.name, prompt: Text("gerada ao acaso se ficar vazia"))
+        TextField("Utilizador da base de dados", text: $db.user)
+        SecureField("Palavra-passe da base de dados", text: $db.password)
+        HStack(spacing: 8) {
+            if let test {
+                Label { Text(test.text) } icon: {
+                    Image(systemName: test.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(test.ok ? .green : .orange)
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            FormRow("Base de dados") {
-                TextField("gerada ao acaso se ficar vazia", text: $db.name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome da base de dados")
-            }
-            FormRow("Utilizador") { TextField("", text: $db.user).textFieldStyle(.roundedBorder).accessibilityLabel("Utilizador da base de dados") }
-            FormRow("Palavra-passe") { SecureField("", text: $db.password).textFieldStyle(.roundedBorder).accessibilityLabel("Palavra-passe da base de dados") }
-            FormRow("") {
-                HStack(spacing: 8) {
-                    Button("Testar ligação", action: testConnection).disabled(testing)
-                    if testing { ProgressView().controlSize(.small) }
-                    if let test {
-                        Label { Text(test.text) } icon: {
-                            Image(systemName: test.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(test.ok ? .green : .orange)
-                        }
-                        .font(.callout)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
+            Spacer()
+            if testing { ProgressView().controlSize(.small) }
+            Button("Testar ligação", action: testConnection).disabled(testing)
         }
     }
 
     @ViewBuilder private var serverStatus: some View {
-        FormRow("Neste Mac") {
+        LabeledContent("Neste Mac") {
             if !server.isSupportedOnMac {
                 Label { Text("\(server.title) não existe para Mac — escolha outra versão") } icon: {
                     Image(systemName: "xmark.octagon.fill").foregroundStyle(.orange)
                 }
             } else if server.isInstalled {
                 Label { Text("\(server.title) instalado") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+            } else if installing {
+                HStack(spacing: 6) { ProgressView().controlSize(.small); Text("A instalar…") }
             } else {
-                HStack {
-                    Label("\(server.title) por instalar", systemImage: "arrow.down.circle").foregroundStyle(.secondary)
-                    Spacer()
-                    if installing {
-                        ProgressView().controlSize(.small)
-                        Text("A instalar…").foregroundStyle(.secondary)
-                    } else {
-                        Button("Instalar", action: installServer)
-                    }
-                }
+                Button("Instalar \(server.title)", action: installServer)
             }
         }
     }
@@ -997,8 +951,8 @@ struct NewSiteView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canCreate)
         }
-        .controlSize(.large)
-        .padding(16)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 18)
     }
 
     private var canCreate: Bool {
@@ -1053,80 +1007,6 @@ struct NewSiteView: View {
                 self.error = error.localizedDescription
             }
         }
-    }
-}
-
-private struct FormCard<Content: View>: View {
-    let title: LocalizedStringKey
-    let symbol: String
-    var footnote: LocalizedStringKey?
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol).font(.headline).accessibilityAddTraits(.isHeader)
-            content
-            if let footnote {
-                Text(footnote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground())
-    }
-}
-
-/// Rótulo à esquerda com largura fixa, campo à direita: colunas alinhadas em todos os cartões.
-private struct FormRow<Field: View>: View {
-    let label: LocalizedStringKey
-    @ViewBuilder let field: Field
-    init(_ label: LocalizedStringKey, @ViewBuilder field: () -> Field) { self.label = label; self.field = field() }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label).foregroundStyle(.secondary).frame(width: 110, alignment: .leading)
-            field.frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-private struct EngineTile: View {
-    let engine: DatabaseEngine
-    let selected: Bool
-    let action: () -> Void
-
-    private var tag: LocalizedStringKey {
-        switch engine {
-        case .mariadb: "Recomendado"
-        case .mysql: "cPanel"
-        case .sqlite: "Só testes"
-        case .postgresql: "Indisponível"
-        }
-    }
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: engine.symbol).font(.title2)
-                Text(engine.title).font(.callout.weight(.semibold))
-                Text(tag).font(.caption2).foregroundStyle(selected ? Color.accentColor : .secondary)
-            }
-            .frame(maxWidth: .infinity, minHeight: 82)
-            .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Color.accentColor.opacity(0.12) : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(selected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: selected ? 2 : 1))
-            .overlay(alignment: .topTrailing) {
-                if selected {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.tint).padding(6)
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .disabled(!engine.isAvailable)
-        .opacity(engine.isAvailable ? 1 : 0.45)
-        .help(engine.isAvailable ? engine.summary : L("O WordPress não suporta PostgreSQL nativamente."))
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

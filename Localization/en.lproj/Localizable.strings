@@ -325,3 +325,6 @@
 "● a correr" = "● running";
 "Neste Mac (gerida pela app)" = "On this Mac (managed by the app)";
 "Servidor existente" = "Existing server";
+"Base de dados, utilizador e palavra-passe criados ao acaso, no formato do cPanel (prefixo_nome)." = "Database, user and password are generated at random in cPanel format (prefix_name).";
+"Instalar %@" = "Install %@";
+"O botão WP Admin da app entra sem a escrever." = "The app’s WP Admin button signs in without typing it.";
