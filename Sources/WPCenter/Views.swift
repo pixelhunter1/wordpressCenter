@@ -4,9 +4,15 @@ import SwiftUI
 
 // MARK: - Janela principal
 
+/// O que está escolhido na barra lateral: um site ou uma secção das Definições.
+enum SidebarItem: Hashable {
+    case site(Site.ID)
+    case settings(SettingsPane)
+}
+
 struct ContentView: View {
     @EnvironmentObject var store: SiteStore
-    @State private var selection: Site.ID?
+    @State private var selection: SidebarItem?
     @State private var search = ""
     @State private var showNewSite = false
     @State private var showCPanel = false
@@ -23,29 +29,40 @@ struct ContentView: View {
                 Section("Sites") {
                     ForEach(filteredSites) { site in
                         SiteRow(site: site, running: store.isRunning(site))
-                            .tag(site.id)
+                            .tag(SidebarItem.site(site.id))
                             .contextMenu { SiteMenu(site: site, onRename: { siteToRename = site }) { siteToDelete = site } }
                     }
                 }
             }
             .searchable(text: $search, placement: .sidebar, prompt: "Procurar")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
-            .safeAreaInset(edge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
+            // Definições fixas no fundo: os sites crescem por cima. Linhas próprias em vez de uma segunda List,
+            // que precisaria de altura fixa e cortava o texto com outros tamanhos de barra lateral.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Definições")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                    ForEach(SettingsPane.allCases) { pane in
+                        SettingsSidebarRow(pane: pane, selected: selection == .settings(pane)) {
+                            selection = .settings(pane)
+                        }
+                    }
                     Button { showCPanel = true } label: {
                         Label("Bases de dados do cPanel", systemImage: "server.rack")
                     }
-                    SettingsLink {
-                        Label("Definições", systemImage: "gearshape")
-                    }
-                    .help("Definições do WP Center (⌘,)")
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
                 }
-                .buttonStyle(.borderless)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
             }
         } detail: {
-            if let site = store.sites.first(where: { $0.id == selection }) {
+            if case .settings(let pane) = selection {
+                SettingsPaneView(pane: pane)
+            } else if case .site(let id) = selection, let site = store.sites.first(where: { $0.id == id }) {
                 SiteDetailView(site: site, onRename: { siteToRename = site }) { siteToDelete = site }.id(site.id)
             } else {
                 ContentUnavailableView {
@@ -65,7 +82,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showNewSite) {
-            NewSiteView { selection = $0.id }
+            NewSiteView { selection = .site($0.id) }
         }
         .sheet(isPresented: $showCPanel) { CPanelView() }
         .sheet(item: $siteToRename) { RenameSiteView(site: $0) }
@@ -75,7 +92,7 @@ struct ContentView: View {
             Button("Mover para o Lixo", role: .destructive) {
                 Task {
                     await store.delete(site)
-                    if selection == site.id { selection = store.sites.first?.id }
+                    if selection == .site(site.id) { selection = store.sites.first.map { .site($0.id) } }
                 }
             }
         } message: { site in
@@ -88,9 +105,21 @@ struct ContentView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
-        .onAppear { selection = selection ?? store.sites.first?.id }
+        .onAppear {
+            selection = selection ?? store.sites.first.map { .site($0.id) }
+            showRequestedSettings()
+        }
+        .onChange(of: store.settingsRequested) { showRequestedSettings() }
         // Sites iniciados/parados pelo `wpc` no terminal: refresca o estado de vez em quando.
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in store.objectWillChange.send() }
+    }
+
+    /// ⌘, e a barra de menus pedem as Definições: abre a secção Geral, salvo se já houver uma aberta.
+    private func showRequestedSettings() {
+        guard store.settingsRequested else { return }
+        store.settingsRequested = false
+        if case .settings = selection { return }
+        selection = .settings(.general)
     }
 }
 
@@ -1204,15 +1233,112 @@ private struct EngineSummary: View {
 
 // MARK: - Definições
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("Geral", systemImage: "gearshape") }
-            NewSiteSettings().tabItem { Label("Novos sites", systemImage: "plus.square.on.square") }
-            AppsSettings().tabItem { Label("Aplicações", systemImage: "app.badge") }
-            AdvancedSettings().tabItem { Label("Avançado", systemImage: "wrench.and.screwdriver") }
+/// Secções das Definições, listadas na barra lateral como nas Definições do Sistema.
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general, newSites, apps, advanced
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "Geral"
+        case .newSites: "Novos sites"
+        case .apps: "Aplicações"
+        case .advanced: "Avançado"
         }
-        .frame(width: 580)
+    }
+
+    fileprivate var symbol: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .newSites: "plus.square.on.square.fill"
+        case .apps: "square.grid.2x2.fill"
+        case .advanced: "wrench.and.screwdriver.fill"
+        }
+    }
+
+    fileprivate var color: Color {
+        switch self {
+        case .general: .gray
+        case .newSites: .blue
+        case .apps: .purple
+        case .advanced: .orange
+        }
+    }
+}
+
+/// Ícone branco sobre quadrado colorido, como nas Definições do Sistema.
+private struct SettingsIcon: View {
+    let pane: SettingsPane
+
+    var body: some View {
+        Image(systemName: pane.symbol)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 20, height: 20)
+            .background(pane.color.gradient, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+}
+
+/// Linha das Definições no fundo da barra lateral, com o mesmo realce das linhas da List.
+private struct SettingsSidebarRow: View {
+    let pane: SettingsPane
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.controlActiveState) private var activeState
+
+    var body: some View {
+        Button(action: action) {
+            Label { Text(pane.title) } icon: { SettingsIcon(pane: pane) }
+                .foregroundStyle(selected && activeState == .key ? Color.white : Color.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(activeState == .key ? Color.accentColor : Color.secondary.opacity(0.2))
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 10)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Uma secção das Definições, mostrada na janela principal no lugar do site.
+private struct SettingsPaneView: View {
+    let pane: SettingsPane
+
+    var body: some View {
+        Group {
+            switch pane {
+            case .general: GeneralSettings()
+            case .newSites: NewSiteSettings()
+            case .apps: AppsSettings()
+            case .advanced: AdvancedSettings()
+            }
+        }
+        .navigationTitle(pane.title)
+    }
+}
+
+/// Mostra as Definições na barra lateral (⌘, e barra de menus), abrindo a janela principal se estiver fechada.
+struct OpenSettingsButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Definições…") {
+            SiteStore.shared.settingsRequested = true
+            if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(id: "main")
+            }
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .keyboardShortcut(",")
     }
 }
 
@@ -1294,8 +1420,6 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(height: 560)
     }
 }
 
@@ -1349,8 +1473,6 @@ private struct NewSiteSettings: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(height: 420)
     }
 }
 
@@ -1383,8 +1505,6 @@ private struct AppsSettings: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(height: 420)
     }
 }
 
@@ -1418,7 +1538,5 @@ private struct AdvancedSettings: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
-        .frame(height: 420)
     }
 }

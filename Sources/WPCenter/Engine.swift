@@ -193,6 +193,8 @@ final class SiteStore: ObservableObject {
     @Published private(set) var sites: [Site] = []
     @Published private(set) var processes: [UUID: Process] = [:]
     @Published var errorMessage: String?
+    /// Pedido de ⌘, ou da barra de menus para a janela principal mostrar as Definições.
+    @Published var settingsRequested = false
 
     let storage: URL
     private var file: URL { storage.appendingPathComponent("sites.json") }

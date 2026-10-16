@@ -31,13 +31,14 @@ struct WPCenterApp: App {
         }
         .defaultSize(width: 1040, height: 740)
         .windowToolbarStyle(.unified)
-        .commands { CommandGroup(replacing: .newItem) {} }
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appSettings) { OpenSettingsButton() }
+        }
 
         MenuBarExtra("WP Center", systemImage: "globe", isInserted: $showMenuBar) {
             MenuBarContent().environmentObject(store)
         }
-
-        Settings { SettingsView().environmentObject(store) }
     }
 }
 
@@ -71,7 +72,7 @@ private struct MenuBarContent: View {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
-        SettingsLink { Text("Definições…") }.keyboardShortcut(",")
+        OpenSettingsButton()
         Divider()
         Button("Sair do WP Center") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
