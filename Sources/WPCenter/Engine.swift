@@ -27,6 +27,8 @@ enum Runtime {
     static var access: URL { root.appendingPathComponent("wpcenter-access.php") }
     static var autologin: URL { root.appendingPathComponent("wpcenter-autologin.php") }
     static var collation: URL { root.appendingPathComponent("wpcenter-collation.php") }
+    static var mailPlugin: URL { root.appendingPathComponent("wpcenter-mail.php") }
+    static var mailpit: URL { root.appendingPathComponent("mailpit") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
 
@@ -400,6 +402,7 @@ final class SiteStore: ObservableObject {
         do {
             writeAgentFiles(for: site) // sites criados antes destas funcionalidades também as recebem
             installLocalHelpers(for: site)
+            await ensureMailpit()
             if site.database.engine.needsServer && site.database.managed {
                 try await ensureRunning(LocalServer(site.database))
             }
@@ -480,6 +483,34 @@ final class SiteStore: ObservableObject {
         processes.removeAll()
         databaseServers.values.forEach { $0.terminate() } // SIGTERM: o mysqld/mariadbd encerra de forma limpa
         databaseServers.removeAll()
+        mailpit?.terminate()
+        mailpit = nil
+    }
+
+    // MARK: Emails (Mailpit)
+
+    static let mailpitUI = URL(string: "http://127.0.0.1:8025")!
+    private var mailpit: Process?
+
+    /// Arranca o Mailpit incluído na app. Com a porta SMTP já ocupada (o do Homebrew, ou um iniciado pelo `wpc`) usa esse.
+    func ensureMailpit() async {
+        guard Self.isPortFree(1025) else { return }
+        try? FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup") // como o `wpc start`: continua depois de o terminal fechar
+        p.arguments = [Runtime.mailpit.path, "--smtp", "127.0.0.1:1025", "--listen", "127.0.0.1:8025",
+                       "--database", storage.appendingPathComponent("mailpit.db").path,
+                       "--disable-version-check", "--block-remote-css-and-fonts"] // nada sai do Mac
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return }
+        mailpit = p
+        for _ in 0..<30 where Self.isPortFree(8025) { try? await Task.sleep(for: .milliseconds(100)) }
+    }
+
+    func openMail() async {
+        await ensureMailpit()
+        Prefs.openInBrowser(Self.mailpitUI)
     }
 
     // MARK: Servidor de base de dados local
@@ -564,13 +595,15 @@ final class SiteStore: ObservableObject {
 
     // MARK: Acesso ao wp-admin
 
-    /// Instala/atualiza o mu-plugin de entrada automática (só funciona localmente; nunca vai na exportação).
+    /// Instala/atualiza os mu-plugins de entrada automática e de emails (só funcionam localmente; nunca vão na exportação).
     func installLocalHelpers(for site: Site) {
         let dir = site.folder.appendingPathComponent("wp-content/mu-plugins")
-        let target = dir.appendingPathComponent(Runtime.autologin.lastPathComponent)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: target)
-        try? FileManager.default.copyItem(at: Runtime.autologin, to: target)
+        for helper in [Runtime.autologin, Runtime.mailPlugin] {
+            let target = dir.appendingPathComponent(helper.lastPathComponent)
+            try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.copyItem(at: helper, to: target)
+        }
     }
 
     private struct AccessResult: Decodable {

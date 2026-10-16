@@ -291,6 +291,9 @@ struct SiteDetailView: View {
             .disabled(openingAdmin)
             .keyboardShortcut("a", modifiers: [.command, .shift])
             .help("Abrir o painel já com sessão iniciada (⇧⌘A)")
+            Button { Task { await store.openMail() } } label: { Label("Emails", systemImage: "envelope") }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .help("Ver os emails enviados pelos sites, apanhados pelo Mailpit (⇧⌘E)")
             if running {
                 Button { store.stop(site) } label: { Label("Parar", systemImage: "stop.fill") }
                     .keyboardShortcut("r")

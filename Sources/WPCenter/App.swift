@@ -66,6 +66,7 @@ private struct MenuBarContent: View {
             }
         }
         Divider()
+        Button("Ver emails (Mailpit)") { Task { await store.openMail() } }
         Button("Abrir o WP Center") {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
@@ -179,6 +180,17 @@ enum SelfTest {
             if status != 200 || !body.contains("<title>Selftest") { print(body.prefix(600)) }
             let login = try? await URLSession.shared.data(from: site.url.appendingPathComponent("wp-login.php"))
             check((login?.1 as? HTTPURLResponse)?.statusCode == 200, "wp-login.php responde 200")
+
+            // Emails: o wp_mail() chega ao Mailpit (o incluído na app ou um que já esteja a correr).
+            let subject = "selftest-\(UUID().uuidString)"
+            try await Runtime.php([Runtime.wpCli.path, "eval", "wp_mail('teste@exemplo.test', '\(subject)', 'corpo');"], cwd: site.folder)
+            var delivered = false
+            for _ in 0..<20 where !delivered {
+                let search = SiteStore.mailpitUI.appendingPathComponent("api/v1/search").appending(queryItems: [.init(name: "query", value: subject)])
+                delivered = (try? await URLSession.shared.data(from: search)).map { String(decoding: $0.0, as: UTF8.self).contains(subject) } ?? false
+                if !delivered { try await Task.sleep(for: .milliseconds(250)) }
+            }
+            check(delivered, "wp_mail() chega ao Mailpit")
 
             check(!SiteStore.isPortFree(site.port), "porta em uso é detetada")
 
