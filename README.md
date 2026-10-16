@@ -17,6 +17,10 @@
   <img alt="Languages" src="https://img.shields.io/badge/UI-English%20%7C%20Portugu%C3%AAs-blue">
 </p>
 
+<p align="center">
+  <img src="Assets/screenshots/main-window.png" width="900" alt="WP Center main window with three local WordPress sites">
+</p>
+
 ---
 
 ## Table of contents
@@ -58,7 +62,7 @@ database version and PHP version as your hosting, and one click produces a
 | Feature | Description |
 |---|---|
 | **One-click sites** | Create a fully installed WordPress site in seconds, with a strong random admin password. |
-| **cPanel-matched databases** | MariaDB (10.5 to 11.8) or MySQL (8.0, 8.4): the exact versions cPanel & WHM 136+ can install. SQLite for quick throwaway tests. |
+| **cPanel-matched databases** | MariaDB (10.6 to 11.8) or MySQL (8.0, 8.4): the versions cPanel & WHM 136+ can install that are also available for Mac. SQLite for quick throwaway tests. |
 | **PHP per site** | PHP 8.1 to 8.5, following cPanel's EasyApache 4. PHP 8.4 is bundled; other versions are installed from Homebrew only when you ask. |
 | **Passwordless WP Admin** | Opens the dashboard already signed in, using a one-time, 60-second token that only works on your Mac. |
 | **Export to cPanel** | Drives the WPvivid plugin to produce a clean backup and fixes MySQL 8-only collations that MariaDB rejects. |
@@ -113,8 +117,8 @@ bundles Mailpit and cloudflared, and warns about any UI string that is missing a
    - **MySQL**: the same as cPanel's MySQL (`8.0` or `8.4`).
    - **SQLite**: quick tests only. It cannot be exported to cPanel.
 
-   Pick the **same version your server runs**. **cPanel Versions…** shows the official table of what each operating
-   system (AlmaLinux, CloudLinux, Ubuntu) supports.
+   Pick the **same version your server runs**. **Help → cPanel Database Versions** shows the official table of what
+   each operating system (AlmaLinux, CloudLinux, Ubuntu) supports.
 4. Choose where the database runs:
    - **On this Mac (managed by the app)**: WP Center installs the Homebrew formula on first use, initialises it and
      creates a random cPanel-style database and user (`wpc_xxxxxxxxxx`) for the site.
@@ -123,8 +127,20 @@ bundles Mailpit and cloudflared, and warns about any UI string that is missing a
 6. Optionally set the **WordPress username**. The password is always new and strong.
 7. Click **Create Site**. WordPress is installed in `~/WP Center/<site-name>` (you can change the folder in Settings).
 
+<p align="center">
+  <img src="Assets/screenshots/new-site.png" width="640" alt="New WordPress Site sheet with name, PHP version, WordPress access and database engine">
+</p>
+
+<p align="center">
+  <img src="Assets/screenshots/cpanel-versions.png" width="760" alt="cPanel database versions reference sheet">
+</p>
+
 > [!NOTE]
 > Set your server's engine, version and PHP once in **Settings → New Sites**, and every new site starts with them preselected.
+
+<p align="center">
+  <img src="Assets/screenshots/settings-new-sites.png" width="760" alt="New Sites settings with default database engine, version and PHP">
+</p>
 
 ### 2. Start, open and sign in
 
@@ -170,6 +186,10 @@ caught locally instead of being sent. If another Mailpit is already using port 1
 3. Send the link. The site works over HTTPS without any database change: URLs are rewritten on the fly.
 4. Click **Stop Sharing** when you're done. The link also closes when you stop the site or quit the app.
 
+<p align="center">
+  <img src="Assets/screenshots/share.png" width="860" alt="Share with Your Client popover with the Create Link button">
+</p>
+
 > [!IMPORTANT]
 > This is the only feature that reaches the internet, and only when you start it. Automatic sign-in is refused
 > for every request that comes through the tunnel.
@@ -193,6 +213,10 @@ caught locally instead of being sent. If another Mailpit is already using port 1
 - files for AI agents (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/`, …).
 
 The `wp-config.php` on cPanel is never replaced.
+
+<p align="center">
+  <img src="Assets/screenshots/export.png" width="860" alt="Export to cPanel card with the list of what is left out of the export">
+</p>
 
 ---
 
@@ -227,6 +251,10 @@ running after the command exits, and the app and `wpc` can stop each other's ser
 | **Skills** | Skills for AI agents, copied into each site's `.claude/skills` and `.agents/skills`. Turning one off removes it from every site. |
 | **Apps** | Browser, code editor and terminal used by Open Site, WP Admin, Open in Editor and Open in Terminal. |
 | **Advanced** | `wpc` command · install or remove PHP versions · installed database servers, with **Remove…** for unused ones. |
+
+<p align="center">
+  <img src="Assets/screenshots/settings-advanced.png" width="760" alt="Advanced settings with the wpc command, PHP versions and database servers">
+</p>
 
 ---
 
