@@ -112,6 +112,13 @@ enum SelfTest {
         check(maria == Set(DatabaseEngine.mariadb.cpanelVersions), "versões MariaDB = tabela cPanel")
         check(DatabaseConfig.isValidIdentifier("cpuser_wp1") && !DatabaseConfig.isValidIdentifier("x`; DROP"), "validação do nome da BD")
         check(SiteStore.slug("Olá Mundo!") == "ola-mundo", "slug da pasta")
+        // Sites guardados antes da escolha de PHP (sem phpVersion) usam o PHP incluído na app.
+        let legacy = Site(name: "x", path: "/tmp/x", port: 1, adminPassword: "p", wpVersion: "7", database: DatabaseConfig())
+        var legacyJSON = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as! [String: Any]
+        legacyJSON["phpVersion"] = nil
+        let decoded = try? JSONDecoder().decode(Site.self, from: JSONSerialization.data(withJSONObject: legacyJSON))
+        check(decoded?.php == PHPVersions.bundled && (try? decoded?.phpExecutable()) == Runtime.php,
+              "site antigo sem versão de PHP usa o PHP incluído")
         check(AgentSkill.all.allSatisfy { FileManager.default.fileExists(atPath: Runtime.skills.appendingPathComponent("\($0.id)/SKILL.md").path) },
               "todas as habilidades do catálogo vêm na app")
         let ident = SiteStore.cpanelStyleIdentifier(), pass = SiteStore.strongPassword()
@@ -149,6 +156,10 @@ enum SelfTest {
             }
         }
         for config in configs { await siteRoundTrip(store, in: tmp, config, check) }
+        // Outras versões de PHP já instaladas com o Homebrew: um site SQLite com cada uma.
+        for php in PHPVersions.all where php != PHPVersions.bundled && PHPVersions.isInstalled(php) {
+            await siteRoundTrip(store, in: tmp, DatabaseConfig(engine: .sqlite, targetVersion: ""), php: php, check)
+        }
 
         print(failures == 0 ? "\nTudo OK" : "\n\(failures) falha(s)")
         store.stopAll()
@@ -156,13 +167,14 @@ enum SelfTest {
     }
 
     /// Criar, arrancar, pedir páginas, parar.
-    private static func siteRoundTrip(_ store: SiteStore, in tmp: URL, _ config: DatabaseConfig,
+    private static func siteRoundTrip(_ store: SiteStore, in tmp: URL, _ config: DatabaseConfig, php: String = PHPVersions.bundled,
                                       _ check: (Bool, String) -> Void) async {
-        let label = LocalServer(config).title.trimmingCharacters(in: .whitespaces)
-        print("— \(config.engine == .sqlite ? "SQLite" : label)")
+        let label = (config.engine == .sqlite ? "SQLite" : LocalServer(config).title.trimmingCharacters(in: .whitespaces))
+            + (php == PHPVersions.bundled ? "" : " PHP \(php)")
+        print("— \(label)")
         do {
             let site = try await store.create(name: "Selftest \(label)", in: tmp, adminUser: "selftest",
-                                              adminPassword: "Selftest-pw1", database: config)
+                                              adminPassword: "Selftest-pw1", database: config, php: php)
             if config.engine == .sqlite {
                 check(FileManager.default.fileExists(atPath: site.path + "/wp-content/database/.ht.sqlite"), "site SQLite instalado")
             } else {
@@ -197,6 +209,9 @@ enum SelfTest {
             if status != 200 || !body.contains("<title>Selftest") { print(body.prefix(600)) }
             let login = try? await URLSession.shared.data(from: site.url.appendingPathComponent("wp-login.php"))
             check((login?.1 as? HTTPURLResponse)?.statusCode == 200, "wp-login.php responde 200")
+            let poweredBy = (login?.1 as? HTTPURLResponse)?.value(forHTTPHeaderField: "X-Powered-By") ?? ""
+            check(poweredBy.hasPrefix("PHP/\(php == PHPVersions.bundled ? Runtime.phpVersion : php + ".")"),
+                  "o servidor usa o PHP do site (\(poweredBy))")
 
             // Emails: o wp_mail() chega ao Mailpit (o incluído na app ou um que já esteja a correr).
             let subject = "selftest-\(UUID().uuidString)"

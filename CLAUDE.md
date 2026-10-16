@@ -34,6 +34,8 @@ open "dist/WP Center.app"                               # run the GUI
 - The generated `wp-config.php` sets `AUTOMATIC_UPDATER_DISABLED`. The bundled WordPress lags behind Studio releases, and a background core update would contact wordpress.org and answer 503 "Maintenance" mid-request (it used to break `--selftest`). Users can still update manually from the dashboard.
 - Servers started by another process (app ↔ `wpc`) are stopped by matching `lsof`/`ps` output against the router path and the site path.
 
+**PHP versions (`PHPVersions`, `Engine.swift`).** Each site stores `phpVersion` (nil on older sites means the bundled 8.4). Versions 8.1–8.5 follow cPanel's EasyApache 4. 8.4 is the bundled `runtime/php`; the others are Homebrew `php@X` formulas, installed or removed only on user action (Settings → Advanced, or Install in the New Site sheet). `binary(_:)` also accepts `opt/php` when `php@X` is only an alias of the newest formula. Everything that runs a site (`start`, WP-CLI calls, `wpc wp`) goes through `site.phpExecutable()`, which throws a clear error if that version isn't installed. `--selftest` runs an extra SQLite site on every Homebrew PHP that is already installed and checks `X-Powered-By`.
+
 **Managed databases (`LocalServer`).**
 - Binaries are versioned, keg-only Homebrew formulas (`mariadb@10.11`, `mysql@8.4`, …).
 - Each version has a fixed port (3310+ for MariaDB, 3320+ for MySQL) and a socket at `/tmp/wpcenter-<formula>.sock`. Unix sockets have a 104-character limit, so keep the socket path short.

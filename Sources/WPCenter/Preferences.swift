@@ -41,6 +41,7 @@ enum Prefs {
     static let terminalKey = "terminal"
     static let defaultEngineKey = "defaultEngine"
     static let defaultVersionKey = "defaultVersion"
+    static let defaultPHPKey = "defaultPHP"
     static let defaultAdminUserKey = "defaultAdminUser"
     static let lastRunningSitesKey = "lastRunningSites"
     static let exportDirectoryKey = "exportDirectory"
@@ -87,6 +88,11 @@ enum Prefs {
     // MARK: Novos sites
 
     /// Motor e versão por omissão (p.ex. os do servidor cPanel do utilizador).
+    static var defaultPHP: String {
+        let version = defaults.string(forKey: defaultPHPKey) ?? PHPVersions.bundled
+        return PHPVersions.all.contains(version) ? version : PHPVersions.bundled
+    }
+
     static var defaultDatabase: DatabaseConfig {
         var db = DatabaseConfig()
         if let engine = DatabaseEngine(rawValue: defaults.string(forKey: defaultEngineKey) ?? ""), engine.isAvailable {

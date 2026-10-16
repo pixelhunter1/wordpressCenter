@@ -343,7 +343,7 @@ struct SiteDetailView: View {
                 }
                 Link(site.url.absoluteString, destination: site.url)
                     .disabled(!running)
-                Text("WordPress \(site.wpVersion) · PHP \(Runtime.phpVersion) · \(db.engine.title) \(db.targetVersion)"
+                Text("WordPress \(site.wpVersion) · PHP \(PHPVersions.display(site.php)) · \(db.engine.title) \(db.targetVersion)"
                     .trimmingCharacters(in: .whitespaces))
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -478,7 +478,19 @@ struct SiteDetailView: View {
                 }
             }
             LabeledContent("WordPress", value: site.wpVersion)
-            LabeledContent("PHP", value: Runtime.phpVersion)
+            Picker("PHP", selection: Binding(
+                get: { site.php },
+                set: { version in
+                    Task {
+                        do { try await store.setPHP(site, to: version) } catch { store.errorMessage = error.localizedDescription }
+                    }
+                })) {
+                // Só as instaladas (e a atual); as outras instalam-se em Definições → Avançado.
+                ForEach(PHPVersions.all.filter { PHPVersions.isInstalled($0) || $0 == site.php }, id: \.self) {
+                    Text(PHPVersions.display($0)).tag($0)
+                }
+            }
+            .help("Muda a versão de PHP deste site; se estiver a correr, reinicia-o")
             LabeledContent("Criado", value: site.createdAt.formatted(date: .abbreviated, time: .shortened))
         }
     }
@@ -800,6 +812,8 @@ struct NewSiteView: View {
     @State private var user = Prefs.customAdminUser ?? SiteStore.defaultAdminUser
     @State private var password = SiteStore.strongPassword(length: 20)
     @State private var db = Prefs.defaultDatabase
+    @State private var php = Prefs.defaultPHP
+    @State private var installingPHP = false
     @State private var creating = false
     @State private var installing = false
     @State private var testing = false
@@ -846,6 +860,18 @@ struct NewSiteView: View {
                     Text(directory.appendingPathComponent(SiteStore.slug(name)).path)
                         .lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
                     Button("Escolher…", action: chooseDirectory)
+                }
+            }
+            Picker("PHP", selection: $php) {
+                ForEach(PHPVersions.all, id: \.self) { Text(PHPVersions.display($0)).tag($0) }
+            }
+            if !PHPVersions.isInstalled(php) {
+                LabeledContent("Neste Mac") {
+                    if installingPHP {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("A instalar…") }
+                    } else {
+                        Button("Instalar PHP \(php)", action: installPHP)
+                    }
                 }
             }
         }
@@ -956,7 +982,7 @@ struct NewSiteView: View {
     }
 
     private var canCreate: Bool {
-        guard !creating, !installing, db.engine.isAvailable, !SiteStore.slug(name).isEmpty,
+        guard !creating, !installing, !installingPHP, PHPVersions.isInstalled(php), db.engine.isAvailable, !SiteStore.slug(name).isEmpty,
               !user.trimmingCharacters(in: .whitespaces).isEmpty, !password.isEmpty else { return false }
         return !usesLocalServer || server.isInstalled
     }
@@ -981,6 +1007,15 @@ struct NewSiteView: View {
         }
     }
 
+    private func installPHP() {
+        installingPHP = true
+        error = nil
+        Task {
+            defer { installingPHP = false }
+            do { try await store.installPHP(php) } catch { self.error = error.localizedDescription }
+        }
+    }
+
     private func testConnection() {
         testing = true
         Task {
@@ -998,7 +1033,7 @@ struct NewSiteView: View {
         Task {
             defer { creating = false }
             do {
-                let site = try await store.create(name: name, in: directory, adminUser: user, adminPassword: password, database: db)
+                let site = try await store.create(name: name, in: directory, adminUser: user, adminPassword: password, database: db, php: php)
                 SiteStore.defaultDirectory = directory
                 onCreated(site)
                 await store.start(site)
@@ -1418,6 +1453,7 @@ private struct NewSiteSettings: View {
     @AppStorage(Prefs.defaultEngineKey) private var engine = DatabaseEngine.mariadb
     @AppStorage(Prefs.defaultVersionKey) private var version = DatabaseEngine.mariadb.defaultVersion
     @AppStorage(Prefs.defaultAdminUserKey) private var adminUser = ""
+    @AppStorage(Prefs.defaultPHPKey) private var php = PHPVersions.bundled
     @State private var directory = SiteStore.defaultDirectory
 
     var body: some View {
@@ -1454,6 +1490,17 @@ private struct NewSiteSettings: View {
                 Text("Base de dados por omissão")
             } footer: {
                 Text("Use o motor e a versão do seu servidor cPanel: cada site novo já vem com eles escolhidos.")
+            }
+            Section {
+                Picker("Versão", selection: $php) {
+                    ForEach(PHPVersions.all, id: \.self) { version in
+                        Text(PHPVersions.isInstalled(version) ? PHPVersions.display(version) : L("\(version) (por instalar)")).tag(version)
+                    }
+                }
+            } header: {
+                Text("PHP por omissão")
+            } footer: {
+                Text("Use a versão de PHP do servidor cPanel. Uma versão por instalar instala-se ao criar o site ou em Avançado.")
             }
             Section {
                 TextField("Utilizador do WordPress", text: $adminUser, prompt: Text(SiteStore.defaultAdminUser))
@@ -1499,6 +1546,48 @@ private struct AppsSettings: View {
     }
 }
 
+/// Uma versão instalável com o Homebrew (PHP ou servidor de base de dados): estado e Instalar/Remover.
+private struct HomebrewRow: View {
+    @EnvironmentObject var store: SiteStore
+    let title: String
+    let installed: Bool
+    let inUse: Bool
+    let install: () async throws -> Void
+    let remove: () async throws -> Void
+    @State private var busy = false
+    @State private var confirmRemove = false
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                if busy {
+                    ProgressView().controlSize(.small)
+                } else if installed {
+                    if inUse { Text("Em uso").foregroundStyle(.secondary) }
+                    Button("Remover…") { confirmRemove = true }
+                        .disabled(inUse)
+                        .help(inUse ? "Usado por um site: mude-o primeiro para outra versão" : "Desinstalar com o Homebrew")
+                } else {
+                    Button("Instalar") { run(install) }
+                }
+            }
+        }
+        .confirmationDialog("Remover \(title)?", isPresented: $confirmRemove) {
+            Button("Remover", role: .destructive) { run(remove) }
+        } message: {
+            Text("Desinstala com o Homebrew: deixa de estar disponível também para outros programas que o usem. Pode voltar a instalá-lo mais tarde; os sites e as bases de dados não são apagados.")
+        }
+    }
+
+    private func run(_ action: @escaping () async throws -> Void) {
+        busy = true
+        Task {
+            do { try await action() } catch { store.errorMessage = error.localizedDescription }
+            busy = false
+        }
+    }
+}
+
 private struct AdvancedSettings: View {
     @EnvironmentObject var store: SiteStore
     @State private var cliInstalled = CLI.isInstalled
@@ -1524,6 +1613,32 @@ private struct AdvancedSettings: View {
                 LabeledContent("WordPress", value: Runtime.bundledWordPressVersion)
                 LabeledContent("PHP", value: Runtime.phpVersion)
                 LabeledContent("WP Center", value: Runtime.appVersion)
+            }
+            Section {
+                ForEach(PHPVersions.all.filter { $0 != PHPVersions.bundled }, id: \.self) { version in
+                    HomebrewRow(title: "PHP \(version)", installed: PHPVersions.isInstalled(version),
+                                inUse: store.isInUse(php: version),
+                                install: { try await store.installPHP(version) },
+                                remove: { try await store.uninstallPHP(version) })
+                }
+            } header: {
+                Text("Outras versões de PHP")
+            } footer: {
+                Text("Instaladas com o Homebrew só quando as pede. Uma versão em uso por um site não pode ser removida.")
+            }
+            Section {
+                ForEach(LocalServer.homebrewVersions.sorted { $0.key.title < $1.key.title }, id: \.key) { engine, versions in
+                    ForEach(versions, id: \.self) { version in
+                        let server = LocalServer(DatabaseConfig(engine: engine, targetVersion: version))
+                        HomebrewRow(title: server.title, installed: server.isInstalled, inUse: store.isInUse(server),
+                                    install: { try await store.install(server) },
+                                    remove: { try await store.uninstall(server) })
+                    }
+                }
+            } header: {
+                Text("Servidores de base de dados")
+            } footer: {
+                Text("Remover só apaga o programa: as bases de dados já criadas ficam guardadas e voltam a funcionar se o reinstalar.")
             }
             Section("Dados") {
                 LabeledContent("Registos e bases de dados locais") {

@@ -91,15 +91,16 @@ enum Runtime {
         "-d", "max_execution_time=300",
     ]
 
-    /// Corre o PHP incluído e devolve stdout+stderr. Lança erro com a saída se o código de saída não for 0.
+    /// Corre o PHP (o incluído, ou o do site) e devolve stdout+stderr. Lança erro com a saída se o código de saída não for 0.
     @discardableResult
-    static func php(_ args: [String], cwd: URL? = nil, env: [String: String] = [:]) async throws -> String {
-        let (status, out) = try await phpStatus(args, cwd: cwd, env: env)
+    static func php(_ args: [String], cwd: URL? = nil, env: [String: String] = [:], using php: URL = Runtime.php) async throws -> String {
+        let (status, out) = try await phpStatus(args, cwd: cwd, env: env, using: php)
         guard status == 0 else { throw out.isEmpty ? AppError("O PHP terminou com o código \(status).") : AppError(verbatim: out) }
         return out
     }
 
-    static func phpStatus(_ args: [String], cwd: URL? = nil, env: [String: String] = [:]) async throws -> (Int32, String) {
+    static func phpStatus(_ args: [String], cwd: URL? = nil, env: [String: String] = [:],
+                          using php: URL = Runtime.php) async throws -> (Int32, String) {
         try await exec(php, iniArgs + args, cwd: cwd, env: env)
     }
 
@@ -220,9 +221,51 @@ struct Site: Codable, Identifiable, Hashable {
     var wpVersion: String
     var database: DatabaseConfig
     var createdAt = Date()
+    /// nil nos sites criados antes da escolha de PHP: usam o incluído na app.
+    var phpVersion: String?
 
     var url: URL { URL(string: "http://localhost:\(port)")! }
     var folder: URL { URL(fileURLWithPath: path) }
+    var php: String { phpVersion ?? PHPVersions.bundled }
+
+    /// O executável do PHP do site; erro claro se essa versão ainda não estiver instalada neste Mac.
+    func phpExecutable() throws -> URL {
+        guard let url = PHPVersions.binary(php) else {
+            throw AppError("O PHP \(php) não está instalado neste Mac. Instale-o em Definições → Avançado.")
+        }
+        return url
+    }
+}
+
+/// Versões de PHP para os sites: as do cPanel (EasyApache 4). A 8.4 vem dentro da app; as outras instalam-se
+/// com o Homebrew só quando o utilizador as pede, como os servidores de base de dados.
+enum PHPVersions {
+    static let bundled = "8.4"
+    static let all = ["8.1", "8.2", "8.3", "8.4", "8.5"]
+
+    static func formula(_ version: String) -> String { "php@\(version)" }
+
+    /// "8.4.26" para a incluída (versão exata), "8.3" para as do Homebrew.
+    static func display(_ version: String) -> String { version == bundled ? Runtime.phpVersion : version }
+
+    static func binary(_ version: String) -> URL? {
+        if version == bundled { return Runtime.php }
+        guard let opt = LocalServer.brew?.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("opt") else {
+            return nil
+        }
+        // A versão mais recente (p.ex. 8.5) é a fórmula "php", e php@8.5 só um alias: pode só existir opt/php.
+        for name in [formula(version), "php"] {
+            let bin = opt.appendingPathComponent("\(name)/bin/php")
+            guard FileManager.default.isExecutableFile(atPath: bin.path) else { continue }
+            if name == "php", !opt.appendingPathComponent("php").resolvingSymlinksInPath().lastPathComponent.hasPrefix(version + ".") {
+                continue
+            }
+            return bin
+        }
+        return nil
+    }
+
+    static func isInstalled(_ version: String) -> Bool { binary(version) != nil }
 }
 
 @MainActor
@@ -271,7 +314,7 @@ final class SiteStore: ObservableObject {
     // MARK: Criar
 
     func create(name: String, in directory: URL, adminUser: String = "admin", adminPassword: String = SiteStore.strongPassword(),
-                database: DatabaseConfig) async throws -> Site {
+                database: DatabaseConfig, php: String = PHPVersions.bundled) async throws -> Site {
         let name = name.trimmingCharacters(in: .whitespaces)
         let slug = Self.slug(name)
         guard !slug.isEmpty else { throw AppError("Indique um nome para o site.") }
@@ -303,7 +346,8 @@ final class SiteStore: ObservableObject {
         var port = (sites.map(\.port).max() ?? 8900) + 1
         while !Self.isPortFree(port) { port += 1 }
         let site = Site(name: name, path: folder.path, port: port, adminUser: adminUser,
-                        adminPassword: adminPassword, wpVersion: Runtime.bundledWordPressVersion, database: db)
+                        adminPassword: adminPassword, wpVersion: Runtime.bundledWordPressVersion, database: db, phpVersion: php)
+        let phpBinary = try site.phpExecutable()
         do {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
             try fm.copyItem(at: Runtime.wordpress, to: folder)
@@ -314,7 +358,7 @@ final class SiteStore: ObservableObject {
                 "--url=\(site.url.absoluteString)", "--title=\(name)",
                 "--admin_user=\(site.adminUser)", "--admin_password=\(site.adminPassword)",
                 "--admin_email=admin@localhost.test", "--skip-email",
-            ], cwd: folder)
+            ], cwd: folder, using: phpBinary)
         } catch {
             try? fm.removeItem(at: folder) // só apagamos a pasta que nós próprios criámos (confirmado acima que não existia)
             throw error
@@ -472,11 +516,12 @@ final class SiteStore: ObservableObject {
             FileManager.default.createFile(atPath: logURL.path, contents: nil)
             let log = try FileHandle(forWritingTo: logURL)
 
+            let php = try site.phpExecutable()
             let p = Process()
             let phpArgs = Runtime.iniArgs + ["-S", "127.0.0.1:\(site.port)", "-t", site.path, Runtime.router.path]
             // nohup faz exec do php (mesmo PID) e ignora o SIGHUP enviado quando o terminal fecha.
-            p.executableURL = detached ? URL(fileURLWithPath: "/usr/bin/nohup") : Runtime.php
-            p.arguments = detached ? [Runtime.php.path] + phpArgs : phpArgs
+            p.executableURL = detached ? URL(fileURLWithPath: "/usr/bin/nohup") : php
+            p.arguments = detached ? [php.path] + phpArgs : phpArgs
             p.currentDirectoryURL = site.folder
             p.environment = ProcessInfo.processInfo.environment.merging(["PHP_CLI_SERVER_WORKERS": "4"]) { $1 }
             p.standardOutput = log
@@ -670,13 +715,48 @@ final class SiteStore: ObservableObject {
 
     /// Instala a versão escolhida com o Homebrew (só quando o utilizador carrega em "Instalar").
     func install(_ server: LocalServer) async throws {
-        guard let brew = LocalServer.brew else {
-            throw AppError("O Homebrew não está instalado. Instale-o em brew.sh e tente novamente.")
-        }
-        let (status, out) = try await Runtime.exec(brew, ["install", server.formula], env: ["HOMEBREW_NO_ENV_HINTS": "1"])
+        let (status, out) = try await brew(["install", server.formula])
         guard status == 0, server.isInstalled else {
             throw AppError("A instalação de \(server.title) falhou:\n\(String(out.suffix(600)))")
         }
+    }
+
+    func installPHP(_ version: String) async throws {
+        let (status, out) = try await brew(["install", PHPVersions.formula(version)])
+        guard status == 0, PHPVersions.isInstalled(version) else {
+            throw AppError("A instalação do PHP \(version) falhou:\n\(String(out.suffix(600)))")
+        }
+    }
+
+    /// Sites que usam este servidor: enquanto houver algum, não se pode remover.
+    func isInUse(_ server: LocalServer) -> Bool {
+        sites.contains { $0.database.engine.needsServer && $0.database.managed && LocalServer($0.database) == server }
+    }
+
+    func isInUse(php version: String) -> Bool { sites.contains { $0.php == version } }
+
+    /// Remove os binários; a pasta de dados (Databases/<fórmula>) fica, com as bases de dados já criadas.
+    func uninstall(_ server: LocalServer) async throws {
+        guard !isInUse(server) else { throw AppError("\(server.title) ainda é usado por um site.") }
+        guard Self.isPortFree(server.port) else { throw AppError("\(server.title) está a correr. Pare os sites que o usam primeiro.") }
+        let (status, out) = try await brew(["uninstall", server.formula])
+        guard status == 0 else { throw AppError("Não foi possível remover \(server.title):\n\(String(out.suffix(600)))") }
+    }
+
+    func uninstallPHP(_ version: String) async throws {
+        guard version != PHPVersions.bundled else { return } // vem dentro da app
+        guard !isInUse(php: version) else { throw AppError("O PHP \(version) ainda é usado por um site.") }
+        let (status, out) = try await brew(["uninstall", PHPVersions.formula(version)])
+        guard status == 0 else { throw AppError("Não foi possível remover o PHP \(version):\n\(String(out.suffix(600)))") }
+    }
+
+    /// Só corre quando o utilizador carrega em Instalar ou Remover.
+    private func brew(_ args: [String]) async throws -> (Int32, String) {
+        guard let brew = LocalServer.brew else {
+            throw AppError("O Homebrew não está instalado. Instale-o em brew.sh e tente novamente.")
+        }
+        defer { objectWillChange.send() } // estado de instalado/por instalar
+        return try await Runtime.exec(brew, args, env: ["HOMEBREW_NO_ENV_HINTS": "1"])
     }
 
     /// Inicializa (na primeira vez) e arranca o servidor; não faz nada se já estiver a correr.
@@ -768,7 +848,8 @@ final class SiteStore: ObservableObject {
     private func access(_ site: Site, _ action: String, _ env: [String: String] = [:]) async throws -> AccessResult {
         if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.access.path], cwd: site.folder,
-                                                      env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 })
+                                                      env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 },
+                                                      using: site.phpExecutable())
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(AccessResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
         else { throw AppError("O WordPress não respondeu:\n\(String(output.suffix(600)))") }
@@ -812,11 +893,23 @@ final class SiteStore: ObservableObject {
         guard !name.isEmpty else { throw AppError("Indique um nome.") }
         if updateWordPress {
             if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
-            try await Runtime.php([Runtime.wpCli.path, "option", "update", "blogname", name], cwd: site.folder)
+            try await Runtime.php([Runtime.wpCli.path, "option", "update", "blogname", name], cwd: site.folder, using: site.phpExecutable())
         }
         guard let index = sites.firstIndex(where: { $0.id == site.id }) else { return }
         sites[index].name = name
         try save()
+    }
+
+    /// Muda o PHP do site; se estiver a correr, reinicia-o já com a versão nova.
+    func setPHP(_ site: Site, to version: String) async throws {
+        guard let index = sites.firstIndex(where: { $0.id == site.id }), sites[index].php != version else { return }
+        guard PHPVersions.isInstalled(version) else { throw AppError("O PHP \(version) não está instalado neste Mac. Instale-o em Definições → Avançado.") }
+        sites[index].phpVersion = version
+        try save()
+        guard isRunning(site) else { return }
+        stop(site)
+        for _ in 0..<30 where !Self.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(100)) }
+        await start(sites[index])
     }
 
     func resetAccess(_ site: Site) async throws {
@@ -871,7 +964,7 @@ final class SiteStore: ObservableObject {
     func collation(_ site: Site, convert: Bool) async throws -> [String] {
         if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.collation.path], cwd: site.folder,
-                                                      env: ["WPCENTER_ACTION": convert ? "convert" : "check"])
+                                                      env: ["WPCENTER_ACTION": convert ? "convert" : "check"], using: site.phpExecutable())
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(CollationResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
         else { throw AppError("Não foi possível verificar a base de dados:\n\(String(output.suffix(600)))") }
@@ -901,7 +994,8 @@ final class SiteStore: ObservableObject {
         let stamp = formatter.string(from: Date())
         let target = directory.appendingPathComponent("\(site.folder.lastPathComponent)-\(stamp)")
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.wpvividExport.path],
-                                                      cwd: site.folder, env: ["WPCENTER_EXPORT_DIR": target.path])
+                                                      cwd: site.folder, env: ["WPCENTER_EXPORT_DIR": target.path],
+                                                      using: site.phpExecutable())
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(ExportResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
         else {

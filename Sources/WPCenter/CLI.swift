@@ -86,7 +86,7 @@ enum CLI {
             Palavra-passe:  \(site.adminPassword)
             Pasta:          \(site.path)
             WordPress:      \(site.wpVersion)
-            PHP:            \(Runtime.phpVersion)
+            PHP:            \(PHPVersions.display(site.php))
             Base de dados:  \(db.engine.title) \(db.targetVersion)\(server)
             """))
             return 0
@@ -141,7 +141,7 @@ enum CLI {
             }
             // stdin/stdout/stderr herdados: `wpc wp shell` e prompts interativos funcionam.
             let p = Process()
-            p.executableURL = Runtime.php
+            do { p.executableURL = try site.phpExecutable() } catch { fail(error.localizedDescription); return 1 }
             p.arguments = Runtime.iniArgs + [Runtime.wpCli.path] + args.dropFirst()
             p.currentDirectoryURL = site.folder
             do { try p.run() } catch { fail(error.localizedDescription); return 1 }
