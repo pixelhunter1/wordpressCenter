@@ -66,7 +66,8 @@ private struct MenuBarContent: View {
                 ShareMenuItems(site: site)
                 Button("Abrir no editor") { Prefs.openInEditor(site.folder) }
             } label: {
-                Label("\(site.name)  ·  \(running ? "a correr" : "parado")\(store.shares[site.id] != nil ? "  ·  partilhado" : "")",
+                let state = running ? L("a correr") : L("parado")
+                Label(store.shares[site.id] != nil ? L("\(site.name)  ·  \(state)  ·  partilhado") : "\(site.name)  ·  \(state)",
                       systemImage: running ? "circle.fill" : "circle")
             }
         }

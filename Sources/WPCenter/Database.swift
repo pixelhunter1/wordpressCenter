@@ -28,10 +28,10 @@ enum DatabaseEngine: String, Codable, CaseIterable, Identifiable {
 
     var summary: String {
         switch self {
-        case .sqlite: "Só para testes rápidos. Não recomendado para migrar para o cPanel."
-        case .mysql: "Igual ao MySQL do cPanel. Pronto a migrar com o WPvivid."
-        case .mariadb: "Recomendado. Motor por omissão do cPanel, pronto a migrar com o WPvivid."
-        case .postgresql: "Disponível no cPanel, mas o WordPress não o suporta nativamente."
+        case .sqlite: L("Só para testes rápidos. Não recomendado para migrar para o cPanel.")
+        case .mysql: L("Igual ao MySQL do cPanel. Pronto a migrar com o WPvivid.")
+        case .mariadb: L("Recomendado. Motor por omissão do cPanel, pronto a migrar com o WPvivid.")
+        case .postgresql: L("Disponível no cPanel, mas o WordPress não o suporta nativamente.")
         }
     }
 
@@ -73,14 +73,6 @@ struct CPanelSupportRow: Identifiable {
         .init(os: "CloudLinux 9", mysql: ["8.0", "8.4"], mariadb: ["10.5", "10.6", "10.11", "11.4", "11.8"], postgresql: "Versão do SO"),
         .init(os: "CloudLinux 10", mysql: ["8.4"], mariadb: ["10.11", "11.4", "11.8"], postgresql: "Versão do SO"),
         .init(os: "Ubuntu 24", mysql: ["8.0", "8.4"], mariadb: ["10.11", "11.4", "11.8"], postgresql: "Não suportado"),
-    ]
-
-    static let notes: [String] = [
-        "Cada servidor cPanel usa MySQL ou MariaDB — nunca os dois em simultâneo.",
-        "Sem personalização, o cPanel & WHM instala o MariaDB 10.11.",
-        "MySQL 5.7 e MariaDB 10.0–10.3 já não podem ser escolhidos em instalações novas.",
-        "PostgreSQL: só é suportado quando instalado com o script installpostgres, usa a versão incluída no SO e não está disponível em Ubuntu.",
-        "O WordPress precisa de MySQL ou MariaDB; PostgreSQL não é suportado nativamente.",
     ]
 }
 

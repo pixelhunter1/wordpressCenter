@@ -6,9 +6,9 @@ enum LaunchBehavior: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .none: "Não iniciar nenhum site"
-        case .resume: "Retomar os sites que estavam a correr"
-        case .all: "Iniciar todos os sites"
+        case .none: L("Não iniciar nenhum site")
+        case .resume: L("Retomar os sites que estavam a correr")
+        case .all: L("Iniciar todos os sites")
         }
     }
 }
@@ -18,8 +18,8 @@ enum QuitBehavior: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .stop: "Parar todos os sites"
-        case .keep: "Manter os sites a correr"
+        case .stop: L("Parar todos os sites")
+        case .keep: L("Manter os sites a correr")
         }
     }
 }

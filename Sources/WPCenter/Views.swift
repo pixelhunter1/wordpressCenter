@@ -151,7 +151,8 @@ private struct SiteRow: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityValue((running ? "A correr" : "Parado") + (shared ? ", partilhado por link" : ""))
+        .accessibilityValue(running ? (shared ? L("A correr, partilhado por link") : L("A correr"))
+                                    : (shared ? L("Parado, partilhado por link") : L("Parado")))
     }
 }
 
@@ -352,10 +353,10 @@ struct SiteDetailView: View {
 
     private var accessSection: some View {
         Section {
-            LabeledContent("Utilizador") { CopyableText(site.adminUser, what: "utilizador do WordPress") }
-            LabeledContent("Palavra-passe") { SecretText(value: site.adminPassword, what: "palavra-passe do WordPress") }
+            LabeledContent("Utilizador") { CopyableText(site.adminUser, what: L("utilizador do WordPress")) }
+            LabeledContent("Palavra-passe") { SecretText(value: site.adminPassword, what: L("palavra-passe do WordPress")) }
             if credentialsValid == false {
-                Banner(text: "Estas credenciais já não funcionam neste site (foi restaurado com o WPvivid?).")
+                Banner(text: L("Estas credenciais já não funcionam neste site (foi restaurado com o WPvivid?)."))
             }
             HStack {
                 if resetting { ProgressView().controlSize(.small) }
@@ -376,11 +377,11 @@ struct SiteDetailView: View {
         Section("Base de dados") {
             LabeledContent("Motor", value: "\(db.engine.title) \(db.targetVersion)".trimmingCharacters(in: .whitespaces))
             if db.engine.needsServer {
-                LabeledContent("Onde", value: db.managed ? "Neste Mac (gerida pela app)" : "Servidor existente")
-                LabeledContent("Nome") { CopyableText(db.name, what: "nome da base de dados") }
-                LabeledContent("Utilizador") { CopyableText(db.user, what: "utilizador da base de dados") }
-                LabeledContent("Palavra-passe") { SecretText(value: db.password, what: "palavra-passe da base de dados") }
-                LabeledContent("Servidor") { CopyableText("\(db.host):\(String(db.port))", what: "endereço do servidor") }
+                LabeledContent("Onde", value: db.managed ? L("Neste Mac (gerida pela app)") : L("Servidor existente"))
+                LabeledContent("Nome") { CopyableText(db.name, what: L("nome da base de dados")) }
+                LabeledContent("Utilizador") { CopyableText(db.user, what: L("utilizador da base de dados")) }
+                LabeledContent("Palavra-passe") { SecretText(value: db.password, what: L("palavra-passe da base de dados")) }
+                LabeledContent("Servidor") { CopyableText("\(db.host):\(String(db.port))", what: L("endereço do servidor")) }
             } else {
                 LabeledContent("Ficheiro", value: "wp-content/database/.ht.sqlite")
             }
@@ -409,7 +410,10 @@ struct SiteDetailView: View {
                 }
                 if let exportError { ErrorText(exportError) }
                 if let collationTables {
-                    Banner(text: "\(collationTables.count) tabela\(collationTables.count == 1 ? "" : "s") usa\(collationTables.count == 1 ? "" : "m") uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(collationTables.joined(separator: ", ")).")
+                    let list = collationTables.joined(separator: ", ")
+                    Banner(text: collationTables.count == 1
+                        ? L("1 tabela usa uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(list).")
+                        : L("\(collationTables.count) tabelas usam uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(list)."))
                     HStack {
                         Spacer()
                         Button("Exportar sem converter") { export(.ignore) }
@@ -425,7 +429,8 @@ struct SiteDetailView: View {
                         Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([result.folder]) }
                     } label: {
                         Label {
-                            Text("\(result.files.count) ficheiro\(result.files.count == 1 ? "" : "s") · \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))")
+                            let size = ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file)
+                            Text(result.files.count == 1 ? L("1 ficheiro · \(size)") : L("\(result.files.count) ficheiros · \(size)"))
                             Text(result.folder.lastPathComponent)
                         } icon: {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -446,15 +451,15 @@ struct SiteDetailView: View {
 
     /// Onde a exportação vai parar, como o Finder o mostra (p.ex. "Descargas").
     private var exportDestination: String {
-        Prefs.asksExportLocation ? "a pasta que escolher" : FileManager.default.displayName(atPath: Prefs.exportDirectory.path)
+        Prefs.asksExportLocation ? L("a pasta que escolher") : FileManager.default.displayName(atPath: Prefs.exportDirectory.path)
     }
 
     private var exclusions: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Fica de fora da exportação").font(.headline)
-            ForEach(["Restos do Studio (base de dados SQLite, plugin SQLite, carregador)",
-                     "mu-plugins de desenvolvimento (dev-*) e a entrada automática do WP Center",
-                     "Ficheiros para agentes de IA (AGENTS.md, CLAUDE.md…)"], id: \.self) {
+            ForEach([L("Restos do Studio (base de dados SQLite, plugin SQLite, carregador)"),
+                     L("mu-plugins de desenvolvimento (dev-*) e a entrada automática do WP Center"),
+                     L("Ficheiros para agentes de IA (AGENTS.md, CLAUDE.md…)")], id: \.self) {
                 Label($0, systemImage: "minus.circle").font(.callout)
             }
             Text("O wp-config.php do cPanel nunca é substituído.").font(.callout).foregroundStyle(.secondary)
@@ -488,8 +493,8 @@ struct SiteDetailView: View {
             panel.canChooseFiles = false
             panel.canCreateDirectories = true
             panel.directoryURL = directory
-            panel.prompt = "Exportar aqui"
-            panel.message = "Escolha onde guardar o backup de \(site.name)"
+            panel.prompt = L("Exportar aqui")
+            panel.message = L("Escolha onde guardar o backup de \(site.name)")
             guard panel.runModal() == .OK, let url = panel.url else { return }
             directory = url
         }
@@ -519,7 +524,7 @@ struct SiteDetailView: View {
                 try await store.resetAccess(site)
                 credentialsValid = true
             } catch {
-                store.errorMessage = "Não foi possível repor o acesso: \(error.localizedDescription)"
+                store.errorMessage = L("Não foi possível repor o acesso: \(error.localizedDescription)")
             }
             resetting = false
         }
@@ -644,8 +649,8 @@ extension View {
 }
 
 /// Lido pelo VoiceOver quando algo muda sem mudar o foco (copiar, link pronto, exportação).
-@MainActor func announce(_ text: String) {
-    AccessibilityNotification.Announcement(text).post()
+@MainActor func announce(_ text: String.LocalizationValue) {
+    AccessibilityNotification.Announcement(L(text)).post()
 }
 
 /// Erro com o ícone a vermelho e o texto em cor normal: vermelho sobre fundo claro não tem contraste suficiente.
@@ -680,11 +685,11 @@ private struct SecretText: View {
                 .font(.body.monospaced())
                 .textSelection(.enabled)
                 .lineLimit(1)
-                .accessibilityLabel(revealed ? value : "Oculta") // senão o VoiceOver lê 12 vezes "ponto"
+                .accessibilityLabel(revealed ? value : L("Oculta")) // senão o VoiceOver lê 12 vezes "ponto"
             Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye").iconHitTarget() }
                 .buttonStyle(.borderless)
                 .help(revealed ? "Ocultar" : "Mostrar")
-                .accessibilityLabel("\(revealed ? "Ocultar" : "Mostrar") \(what)")
+                .accessibilityLabel(revealed ? L("Ocultar \(what)") : L("Mostrar \(what)"))
             CopyButton(value: value, what: what)
         }
     }
@@ -790,7 +795,7 @@ struct NewSiteView: View {
     @Environment(\.dismiss) private var dismiss
     let onCreated: (Site) -> Void
 
-    @State private var name = "O meu site"
+    @State private var name = L("O meu site")
     @State private var directory = SiteStore.defaultDirectory
     @State private var user = Prefs.customAdminUser ?? SiteStore.defaultAdminUser
     @State private var password = SiteStore.strongPassword(length: 20)
@@ -848,7 +853,7 @@ struct NewSiteView: View {
     private var siteCard: some View {
         FormCard(title: "Site", symbol: "globe") {
             FormRow("Nome") {
-                TextField("O meu site", text: $name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome do site")
+                TextField(L("O meu site"), text: $name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome do site")
             }
             FormRow("Guardar em") {
                 HStack {
@@ -873,7 +878,7 @@ struct NewSiteView: View {
                         .accessibilityLabel("Palavra-passe do WordPress")
                     Button { password = SiteStore.strongPassword(length: 20) } label: { Image(systemName: "arrow.clockwise").iconHitTarget() }
                         .buttonStyle(.borderless).help("Gerar outra palavra-passe").accessibilityLabel("Gerar outra palavra-passe")
-                    CopyButton(value: password, what: "palavra-passe")
+                    CopyButton(value: password, what: L("palavra-passe"))
                 }
             }
         }
@@ -1052,9 +1057,9 @@ struct NewSiteView: View {
 }
 
 private struct FormCard<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let symbol: String
-    var footnote: String?
+    var footnote: LocalizedStringKey?
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -1073,9 +1078,9 @@ private struct FormCard<Content: View>: View {
 
 /// Rótulo à esquerda com largura fixa, campo à direita: colunas alinhadas em todos os cartões.
 private struct FormRow<Field: View>: View {
-    let label: String
+    let label: LocalizedStringKey
     @ViewBuilder let field: Field
-    init(_ label: String, @ViewBuilder field: () -> Field) { self.label = label; self.field = field() }
+    init(_ label: LocalizedStringKey, @ViewBuilder field: () -> Field) { self.label = label; self.field = field() }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -1090,7 +1095,7 @@ private struct EngineTile: View {
     let selected: Bool
     let action: () -> Void
 
-    private var tag: String {
+    private var tag: LocalizedStringKey {
         switch engine {
         case .mariadb: "Recomendado"
         case .mysql: "cPanel"
@@ -1120,7 +1125,7 @@ private struct EngineTile: View {
         .buttonStyle(.plain)
         .disabled(!engine.isAvailable)
         .opacity(engine.isAvailable ? 1 : 0.45)
-        .help(engine.isAvailable ? engine.summary : "O WordPress não suporta PostgreSQL nativamente.")
+        .help(engine.isAvailable ? engine.summary : L("O WordPress não suporta PostgreSQL nativamente."))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -1207,9 +1212,9 @@ struct CPanelView: View {
                         Text(row.os).frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(columns, id: \.version) { column in
                             mark((column.engine == .mysql ? row.mysql : row.mariadb).contains(column.version),
-                                 "\(column.engine.title) \(column.version) em \(row.os)")
+                                 L("\(column.engine.title) \(column.version) em \(row.os)"))
                         }
-                        mark(row.postgresql != "Não suportado", "PostgreSQL em \(row.os)")
+                        mark(row.postgresql != "Não suportado", L("PostgreSQL em \(row.os)"))
                     }
                     .padding(.vertical, 7)
                     if row.id != CPanelSupportRow.all.last?.id {
@@ -1233,7 +1238,7 @@ struct CPanelView: View {
         Image(systemName: available ? "checkmark.circle.fill" : "minus")
             .foregroundStyle(available ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
             .frame(minWidth: 52)
-            .accessibilityLabel("\(context): \(available ? "disponível" : "não disponível")")
+            .accessibilityLabel(available ? L("\(context): disponível") : L("\(context): não disponível"))
     }
 
     private var notes: some View {
@@ -1244,7 +1249,7 @@ struct CPanelView: View {
         }
     }
 
-    private func note(_ symbol: String, _ text: String) -> some View {
+    private func note(_ symbol: String, _ text: LocalizedStringKey) -> some View {
         Label {
             Text(text).fixedSize(horizontal: false, vertical: true)
         } icon: {
@@ -1256,9 +1261,9 @@ struct CPanelView: View {
 
 private struct EngineSummary: View {
     let engine: DatabaseEngine
-    let badge: String?
+    let badge: LocalizedStringKey?
     let badgeColor: Color
-    let note: String
+    let note: LocalizedStringKey
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1283,7 +1288,7 @@ private struct EngineSummary: View {
                             .padding(.horizontal, 7).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 6)
                                 .fill(isDefault ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1)))
-                            .accessibilityLabel(isDefault ? "\(version), versão por omissão" : version)
+                            .accessibilityLabel(isDefault ? L("\(version), versão por omissão") : version)
                     }
                 }
             }
@@ -1308,11 +1313,11 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "Geral"
-        case .newSites: "Novos sites"
-        case .skills: "Habilidades"
-        case .apps: "Aplicações"
-        case .advanced: "Avançado"
+        case .general: L("Geral")
+        case .newSites: L("Novos sites")
+        case .skills: L("Habilidades")
+        case .apps: L("Aplicações")
+        case .advanced: L("Avançado")
         }
     }
 
@@ -1409,7 +1414,7 @@ private struct SettingsPaneView: View {
 
 /// Item de menu que mostra algo na janela principal (Definições, Novo site, referência do cPanel), abrindo-a se preciso.
 struct MainWindowButton: View {
-    let title: String
+    let title: LocalizedStringKey
     let request: SiteStore.WindowRequest
     @Environment(\.openWindow) private var openWindow
 
@@ -1599,7 +1604,7 @@ private struct AppsSettings: View {
                     ForEach(browsers) { Text($0.name).tag($0.bundleID) }
                 }
                 Picker("Editor de código", selection: $editor) {
-                    Text(editors.first.map { "Automático (\($0.name))" } ?? "Nenhum instalado").tag("")
+                    Text(editors.first.map { L("Automático (\($0.name))") } ?? L("Nenhum instalado")).tag("")
                     if !editors.isEmpty { Divider() }
                     ForEach(editors) { Text($0.name).tag($0.bundleID) }
                 }

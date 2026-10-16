@@ -21,7 +21,22 @@ CLOUDFLARED="${CLOUDFLARED:-$(command -v cloudflared || true)}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/runtime"
 # swiftc direto: o `swift build` das Command Line Tools atuais falha ao carregar o SwiftPM.
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 Sources/WPCenter/*.swift -o "$APP/Contents/MacOS/WPCenter"
+LOCSTR=$(mktemp -d) # textos traduzíveis encontrados pelo compilador (chaves em pt-PT)
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 Sources/WPCenter/*.swift -o "$APP/Contents/MacOS/WPCenter" \
+  -emit-localized-strings -emit-localized-strings-path "$LOCSTR"
+
+# Línguas: pt-PT e pt (as chaves já são o texto; pt-PT faz o macOS usar os seus textos de Portugal, não do Brasil)
+# e en, para qualquer outra língua do Mac.
+cp -R Localization/*.lproj "$APP/Contents/Resources/"
+# Aviso de textos sem tradução: num Mac noutra língua apareceriam em português.
+python3 - "$LOCSTR" Localization/en.lproj/Localizable.strings <<'PY'
+import glob, json, subprocess, sys
+keys = {e["key"] for f in glob.glob(sys.argv[1] + "/*.stringsdata")
+        for e in json.load(open(f))["tables"].get("Localizable", [])}
+en = json.loads(subprocess.run(["plutil", "-convert", "json", "-o", "-", sys.argv[2]], capture_output=True, check=True).stdout)
+for k in sorted(keys - en.keys()):
+    print("Sem tradução em inglês:", json.dumps(k, ensure_ascii=False))
+PY
 
 R="$APP/Contents/Resources/runtime"
 cp -R "$PHP_DIR" "$R/php"
@@ -69,7 +84,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0.0</string>
 	<key>CFBundleVersion</key><string>1</string>
-	<key>CFBundleDevelopmentRegion</key><string>pt-PT</string>
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleLocalizations</key><array><string>en</string><string>pt</string><string>pt-PT</string></array>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 	<key>NSHighResolutionCapable</key><true/>

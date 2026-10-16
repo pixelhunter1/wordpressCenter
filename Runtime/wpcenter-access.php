@@ -9,6 +9,14 @@
  * Responde com uma linha "WPCENTER_RESULT {json}".
  */
 
+// Mensagens na língua da app (WPCENTER_LANG, posto pelo WP Center): en ou pt.
+if ( ! function_exists( 'wpcenter_t' ) ) {
+	function wpcenter_t( $pt, $en ) {
+		return 'en' === getenv( 'WPCENTER_LANG' ) ? $en : $pt;
+	}
+}
+
+
 function wpcenter_reply( array $data ) {
 	echo 'WPCENTER_RESULT ' . wp_json_encode( $data ) . "\n";
 	exit( $data['ok'] ? 0 : 1 );
@@ -22,14 +30,14 @@ if ( ! $wpcenter_user || ! user_can( $wpcenter_user, 'manage_options' ) ) {
 	$wpcenter_user = $admins[0] ?? false;
 }
 if ( ! $wpcenter_user ) {
-	wpcenter_reply( array( 'ok' => false, 'error' => 'Este site não tem nenhum administrador.' ) );
+	wpcenter_reply( array( 'ok' => false, 'error' => wpcenter_t( 'Este site não tem nenhum administrador.', 'This site has no administrator.' ) ) );
 }
 
 switch ( getenv( 'WPCENTER_ACTION' ) ) {
 	case 'login':
 		$token = (string) getenv( 'WPCENTER_TOKEN' );
 		if ( strlen( $token ) < 32 ) {
-			wpcenter_reply( array( 'ok' => false, 'error' => 'Código de entrada inválido.' ) );
+			wpcenter_reply( array( 'ok' => false, 'error' => wpcenter_t( 'Código de entrada inválido.', 'Invalid sign-in code.' ) ) );
 		}
 		set_transient( 'wpcenter_login_' . hash( 'sha256', $token ), $wpcenter_user->ID, 60 );
 		wpcenter_reply( array( 'ok' => true, 'user' => $wpcenter_user->user_login ) );
@@ -44,11 +52,11 @@ switch ( getenv( 'WPCENTER_ACTION' ) ) {
 	case 'reset':
 		$pass = (string) getenv( 'WPCENTER_PASS' );
 		if ( strlen( $pass ) < 12 ) {
-			wpcenter_reply( array( 'ok' => false, 'error' => 'Palavra-passe demasiado curta.' ) );
+			wpcenter_reply( array( 'ok' => false, 'error' => wpcenter_t( 'Palavra-passe demasiado curta.', 'Password too short.' ) ) );
 		}
 		wp_set_password( $pass, $wpcenter_user->ID ); // termina também as sessões abertas desse utilizador
 		wpcenter_reply( array( 'ok' => true, 'user' => $wpcenter_user->user_login ) );
 		break;
 }
 
-wpcenter_reply( array( 'ok' => false, 'error' => 'Ação desconhecida.' ) );
+wpcenter_reply( array( 'ok' => false, 'error' => wpcenter_t( 'Ação desconhecida.', 'Unknown action.' ) ) );

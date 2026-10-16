@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-WP Center is a native macOS (SwiftUI) app for local WordPress sites, rebuilt from WordPress Studio without any external services (no WordPress.com, sync, AI, telemetry, updates). The only network target at runtime is `localhost`. UI strings and code comments are European Portuguese (pt-PT).
+WP Center is a native macOS (SwiftUI) app for local WordPress sites, rebuilt from WordPress Studio without any external services (no WordPress.com, sync, AI, telemetry, updates). The only network target at runtime is `localhost`. Code comments are European Portuguese (pt-PT). UI strings are written in pt-PT and translated to English (see Localization below).
 
 ## Commands
 
@@ -64,6 +64,8 @@ open "dist/WP Center.app"                               # run the GUI
 **Sharing (Cloudflare Quick Tunnel).** The only network target besides `localhost`, and only on user action. `build.sh` bundles `cloudflared` from Homebrew. `SiteStore.share` runs `cloudflared tunnel --url http://127.0.0.1:<port>` with its output in `Logs/<site-id>-partilha.log`, reads the `https://….trycloudflare.com` URL from there, then waits for the name to resolve through DoH on 1.1.1.1 (an early system DNS lookup gets negatively cached by the router for minutes). Shares close on Terminate, on site stop and always on app quit. `wpcenter-share.php` (mu-plugin) detects the tunnel `Host`, sets `HTTPS`, defines `WP_HOME`/`WP_SITEURL` and swaps `http(s)://localhost:<port>` in the response, without touching the database. Tunnel requests arrive from 127.0.0.1, so the autologin refuses any request carrying `CF-Connecting-IP`.
 
 **Per-site agent files.** `writeAgentFiles` writes `AGENTS.md`, `CLAUDE.md`, `WPCENTER.md` and `.claude|.agents/skills` into each site, only when they're missing. They tell agents to use `wpc wp` instead of a system `wp`.
+
+**Localization.** The pt-PT source text is the key: SwiftUI literals (`Text("…")`, `Button("…")`, `.help("…")`) are translated automatically. Strings built outside a view go through `L("…")` (`Engine.swift`), which uses `Runtime.appBundle` so `wpc` finds the translations, and `AppError("…")` translates itself (`AppError(verbatim:)` for text that is already final, such as command output). A `String` passed to `Text`/`Label` is shown verbatim, so wrap it in `L` where it is built. Write plurals as two sentences, not with `"s"` ternaries. `Localization/en.lproj/Localizable.strings` holds the English text; `pt-PT.lproj` and `pt.lproj` are empty and only mark Portuguese as available (pt-PT so system controls use Portugal’s wording, e.g. "Procurar", not Brazil’s "Buscar"). Macs in Portuguese get Portuguese and every other language gets en (`CFBundleDevelopmentRegion` = en). `build.sh` extracts keys with `swiftc -emit-localized-strings` and lists any key missing from en. AGENTS.md/WPCENTER.md for sites and `--selftest` output stay in pt-PT.
 
 **Other places to know:**
 - `Database.swift` holds the cPanel & WHM supported-version table (sourced from docs.cpanel.net). `--selftest` asserts that the version pickers match it, so keep the two in sync.

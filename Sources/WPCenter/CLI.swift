@@ -21,7 +21,7 @@ enum CLI {
         try FileManager.default.removeItem(at: link)
     }
 
-    static let help = """
+    static let help = L("""
     WP Center — sites WordPress locais
 
     Utilização: wpc [--path <pasta-do-site>] <comando>
@@ -36,7 +36,7 @@ enum CLI {
       wpc wp <args…>      WP-CLI com o PHP e a base de dados do site
 
     Os comandos usam o site da pasta atual, ou o indicado em --path.
-    """
+    """)
 
     static func run() async -> Int32 {
         var args = Array(CommandLine.arguments.dropFirst())
@@ -57,9 +57,9 @@ enum CLI {
             print("wpc \(Runtime.appVersion) (WordPress \(Runtime.bundledWordPressVersion), PHP \(Runtime.phpVersion))")
             return 0
         case "list":
-            if store.sites.isEmpty { print("Ainda não há sites. Crie um na app WP Center."); return 0 }
+            if store.sites.isEmpty { print(L("Ainda não há sites. Crie um na app WP Center.")); return 0 }
             for site in store.sites {
-                let status = store.isRunning(site) ? "● a correr" : "○ parado  "
+                let status = store.isRunning(site) ? L("● a correr") : L("○ parado  ")
                 print("\(status)  \(site.name)  \(site.url.absoluteString)  \(site.database.engine.title) \(site.database.targetVersion)  \(site.path)")
             }
             return 0
@@ -68,16 +68,18 @@ enum CLI {
         }
 
         guard let site = store.site(containing: path) else {
-            fail("\(path) não pertence a nenhum site do WP Center. Entre na pasta do site ou use --path (veja `wpc list`).")
+            fail(L("\(path) não pertence a nenhum site do WP Center. Entre na pasta do site ou use --path (veja `wpc list`)."))
             return 1
         }
 
         switch args[0] {
         case "status":
             let db = site.database
-            print("""
+            let state = store.isRunning(site) ? L("a correr") : L("parado")
+            let server = db.engine.needsServer ? L(" — \(db.name) em \(db.host):\(db.port)") : ""
+            print(L("""
             Site:           \(site.name)
-            Estado:         \(store.isRunning(site) ? "a correr" : "parado")
+            Estado:         \(state)
             Endereço:       \(site.url.absoluteString)
             Administração:  \(site.url.absoluteString)/wp-admin/
             Utilizador:     \(site.adminUser)
@@ -85,43 +87,43 @@ enum CLI {
             Pasta:          \(site.path)
             WordPress:      \(site.wpVersion)
             PHP:            \(Runtime.phpVersion)
-            Base de dados:  \(db.engine.title) \(db.targetVersion)\(db.engine.needsServer ? " — \(db.name) em \(db.host):\(db.port)" : "")
-            """)
+            Base de dados:  \(db.engine.title) \(db.targetVersion)\(server)
+            """))
             return 0
 
         case "start":
-            if store.isRunning(site) { print("\(site.name) já está a correr em \(site.url.absoluteString)"); return 0 }
+            if store.isRunning(site) { print(L("\(site.name) já está a correr em \(site.url.absoluteString)")); return 0 }
             await store.start(site, detached: true)
             if let error = store.errorMessage { fail(error); return 1 }
             for _ in 0..<40 where SiteStore.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(250)) }
-            print("\(site.name) a correr em \(site.url.absoluteString)")
+            print(L("\(site.name) a correr em \(site.url.absoluteString)"))
             return 0
 
         case "stop":
-            guard store.isRunning(site) else { print("\(site.name) já está parado."); return 0 }
+            guard store.isRunning(site) else { print(L("\(site.name) já está parado.")); return 0 }
             store.stop(site)
-            print("\(site.name) parado.")
+            print(L("\(site.name) parado."))
             return 0
 
         case "admin":
             await store.openAdmin(site)
             if let error = store.errorMessage { fail(error); return 1 }
-            print("wp-admin de \(site.name) aberto com sessão iniciada.")
+            print(L("wp-admin de \(site.name) aberto com sessão iniciada."))
             return 0
 
         case "export":
-            print("A criar o backup de \(site.name) com o WPvivid…")
+            print(L("A criar o backup de \(site.name) com o WPvivid…"))
             fflush(stdout) // antes de qualquer erro em stderr
             do {
                 let policy: SiteStore.CollationPolicy = args.contains("--convert") ? .convert : args.contains("--no-convert") ? .ignore : .check
                 let result = try await store.exportForCPanel(site, collations: policy)
-                print("Pronto: \(result.files.count) ficheiro(s), \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))")
+                print(L("Pronto: \(result.files.count) ficheiro(s), \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))"))
                 print(result.dir)
                 result.files.forEach { print("  \($0)") }
-                print("No cPanel: WPvivid → Backup & Restore → Upload → Restore.")
+                print(L("No cPanel: WPvivid → Backup & Restore → Upload → Restore."))
                 return 0
             } catch let error as SiteStore.IncompatibleCollationError {
-                fail("\(error.localizedDescription)\nUse `wpc export --convert` para converter (recomendado) ou `wpc export --no-convert` se o cPanel usar MySQL 8.")
+                fail(L("\(error.localizedDescription)\nUse `wpc export --convert` para converter (recomendado) ou `wpc export --no-convert` se o cPanel usar MySQL 8."))
                 return 1
             } catch {
                 fail(error.localizedDescription)
@@ -147,7 +149,7 @@ enum CLI {
             return p.terminationStatus
 
         default:
-            fail("Comando desconhecido: \(args[0])\n\n\(help)")
+            fail(L("Comando desconhecido: \(args[0])\n\n\(help)"))
             return 1
         }
     }

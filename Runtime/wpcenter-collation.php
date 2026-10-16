@@ -6,6 +6,14 @@
  * Responde com uma linha "WPCENTER_RESULT {json}".
  */
 
+// Mensagens na língua da app (WPCENTER_LANG, posto pelo WP Center): en ou pt.
+if ( ! function_exists( 'wpcenter_t' ) ) {
+	function wpcenter_t( $pt, $en ) {
+		return 'en' === getenv( 'WPCENTER_LANG' ) ? $en : $pt;
+	}
+}
+
+
 global $wpdb;
 
 function wpcenter_reply( array $data ) {
@@ -31,7 +39,7 @@ if ( 'convert' === getenv( 'WPCENTER_ACTION' ) ) {
 		// CONVERT TO muda a tabela e todas as colunas de texto; os dados mantêm-se.
 		$quoted = '`' . str_replace( '`', '``', $table ) . '`';
 		if ( false === $wpdb->query( "ALTER TABLE $quoted CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci" ) ) {
-			wpcenter_reply( array( 'ok' => false, 'error' => "Não foi possível converter $table: " . $wpdb->last_error, 'tables' => $tables ) );
+			wpcenter_reply( array( 'ok' => false, 'error' => sprintf( wpcenter_t( 'Não foi possível converter %s: ', 'Could not convert %s: ' ), $table ) . $wpdb->last_error, 'tables' => $tables ) );
 		}
 	}
 	wpcenter_reply( array( 'ok' => true, 'tables' => array(), 'converted' => $tables ) );

@@ -5,8 +5,16 @@
  * Escreve no fim uma linha "WPCENTER_RESULT {json}" com a pasta e os ficheiros gerados.
  */
 
+// Mensagens na língua da app (WPCENTER_LANG, posto pelo WP Center): en ou pt.
+if ( ! function_exists( 'wpcenter_t' ) ) {
+	function wpcenter_t( $pt, $en ) {
+		return 'en' === getenv( 'WPCENTER_LANG' ) ? $en : $pt;
+	}
+}
+
+
 if ( empty( $GLOBALS['wpvivid_plugin'] ) ) {
-	echo 'WPCENTER_RESULT ' . json_encode( array( 'ok' => false, 'error' => 'O plugin WPvivid não está ativo neste site.' ) ) . "\n";
+	echo 'WPCENTER_RESULT ' . json_encode( array( 'ok' => false, 'error' => wpcenter_t( 'O plugin WPvivid não está ativo neste site.', 'The WPvivid plugin is not active on this site.' ) ) ) . "\n";
 	exit( 1 );
 }
 
@@ -76,7 +84,7 @@ if ( WPVIVID_SUCCESS === $ret['result'] ) {
 	$ret = $wpvivid->pre_backup( $wpcenter_options );
 }
 if ( 'success' !== $ret['result'] ) {
-	echo 'WPCENTER_RESULT ' . json_encode( array( 'ok' => false, 'error' => $ret['error'] ?? 'O WPvivid recusou o backup.' ) ) . "\n";
+	echo 'WPCENTER_RESULT ' . json_encode( array( 'ok' => false, 'error' => $ret['error'] ?? wpcenter_t( 'O WPvivid recusou o backup.', 'WPvivid refused the backup.' ) ) ) . "\n";
 	exit( 1 );
 }
 $wpcenter_task_id = $ret['task_id'];

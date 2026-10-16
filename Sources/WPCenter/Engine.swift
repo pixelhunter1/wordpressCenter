@@ -10,25 +10,32 @@ struct AgentSkill: Identifiable {
     let summary: String
 
     static let all = [
-        AgentSkill(id: "wp-center", title: "WP Center e cPanel", summary: "wpc, emails no Mailpit, colações e exportação para o cPanel"),
-        AgentSkill(id: "wordpress-router", title: "Encaminhamento WordPress", summary: "Classifica o projeto e escolhe a habilidade certa"),
-        AgentSkill(id: "wp-project-triage", title: "Diagnóstico do projeto", summary: "Relatório do tipo de projeto, ferramentas e testes"),
-        AgentSkill(id: "wp-plugin-development", title: "Desenvolvimento de plugins", summary: "Hooks, Settings API, segurança e empacotamento"),
-        AgentSkill(id: "wp-block-development", title: "Desenvolvimento de blocos", summary: "block.json, atributos, renderização e deprecações"),
-        AgentSkill(id: "wp-block-themes", title: "Temas de blocos", summary: "theme.json, templates, padrões e variações de estilo"),
-        AgentSkill(id: "wp-rest-api", title: "REST API", summary: "Rotas, endpoints, schema e autenticação"),
-        AgentSkill(id: "wp-wpcli-and-ops", title: "WP-CLI e operações", summary: "Comandos, automação e search-replace, através do wpc wp"),
-        AgentSkill(id: "wp-performance", title: "Desempenho do servidor", summary: "Perfis com WP-CLI, consultas, autoload, cache e cron"),
-        AgentSkill(id: "wp-phpstan", title: "PHPStan", summary: "Análise estática: phpstan.neon, baselines e tipos do WordPress"),
-        AgentSkill(id: "need-for-speed", title: "Desempenho", summary: "Auditoria de velocidade do site com recomendações"),
-        AgentSkill(id: "rank-me-up", title: "SEO", summary: "Auditoria de SEO on-page com recomendações"),
-        AgentSkill(id: "visual-design", title: "Design visual", summary: "Direção visual: layout, tipografia, cor e imagens"),
+        AgentSkill(id: "wp-center", title: L("WP Center e cPanel"), summary: L("wpc, emails no Mailpit, colações e exportação para o cPanel")),
+        AgentSkill(id: "wordpress-router", title: L("Encaminhamento WordPress"), summary: L("Classifica o projeto e escolhe a habilidade certa")),
+        AgentSkill(id: "wp-project-triage", title: L("Diagnóstico do projeto"), summary: L("Relatório do tipo de projeto, ferramentas e testes")),
+        AgentSkill(id: "wp-plugin-development", title: L("Desenvolvimento de plugins"), summary: L("Hooks, Settings API, segurança e empacotamento")),
+        AgentSkill(id: "wp-block-development", title: L("Desenvolvimento de blocos"), summary: L("block.json, atributos, renderização e deprecações")),
+        AgentSkill(id: "wp-block-themes", title: L("Temas de blocos"), summary: L("theme.json, templates, padrões e variações de estilo")),
+        AgentSkill(id: "wp-rest-api", title: "REST API", summary: L("Rotas, endpoints, schema e autenticação")),
+        AgentSkill(id: "wp-wpcli-and-ops", title: L("WP-CLI e operações"), summary: L("Comandos, automação e search-replace, através do wpc wp")),
+        AgentSkill(id: "wp-performance", title: L("Desempenho do servidor"), summary: L("Perfis com WP-CLI, consultas, autoload, cache e cron")),
+        AgentSkill(id: "wp-phpstan", title: "PHPStan", summary: L("Análise estática: phpstan.neon, baselines e tipos do WordPress")),
+        AgentSkill(id: "need-for-speed", title: L("Desempenho"), summary: L("Auditoria de velocidade do site com recomendações")),
+        AgentSkill(id: "rank-me-up", title: "SEO", summary: L("Auditoria de SEO on-page com recomendações")),
+        AgentSkill(id: "visual-design", title: L("Design visual"), summary: L("Direção visual: layout, tipografia, cor e imagens")),
     ]
+}
+
+/// Texto traduzido para a língua do Mac (en.lproj; em português a própria chave).
+func L(_ value: String.LocalizationValue) -> String {
+    String(localized: value, bundle: Runtime.strings)
 }
 
 struct AppError: LocalizedError {
     let message: String
-    init(_ message: String) { self.message = message }
+    init(_ message: String.LocalizationValue) { self.message = L(message) }
+    /// Texto que já vem pronto (saída de um comando, erro já traduzido).
+    init(verbatim message: String) { self.message = message }
     var errorDescription: String? { message }
 }
 
@@ -40,6 +47,11 @@ enum Runtime {
         return Bundle(url: exe.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) ?? .main
     }()
     static let root = appBundle.resourceURL!.appendingPathComponent("runtime")
+
+    /// "pt" num Mac em português, "en" em qualquer outra língua. Escolhida à mão: como `wpc`, o Bundle.main não tem
+    /// línguas e o macOS alinharia o bundle da app por ele, ficando sempre em inglês.
+    static let language = Bundle.preferredLocalizations(from: appBundle.localizations, forPreferences: Locale.preferredLanguages).first ?? "en"
+    static let strings = appBundle.path(forResource: language, ofType: "lproj").flatMap(Bundle.init(path:)) ?? appBundle
     static var php: URL { root.appendingPathComponent("php/php") }
     static var wordpress: URL { root.appendingPathComponent("wordpress") }
     static var sqlitePlugin: URL { root.appendingPathComponent("sqlite-database-integration") }
@@ -83,7 +95,7 @@ enum Runtime {
     @discardableResult
     static func php(_ args: [String], cwd: URL? = nil, env: [String: String] = [:]) async throws -> String {
         let (status, out) = try await phpStatus(args, cwd: cwd, env: env)
-        guard status == 0 else { throw AppError(out.isEmpty ? "O PHP terminou com o código \(status)." : out) }
+        guard status == 0 else { throw out.isEmpty ? AppError("O PHP terminou com o código \(status).") : AppError(verbatim: out) }
         return out
     }
 
@@ -98,7 +110,10 @@ enum Runtime {
             p.executableURL = executable
             p.arguments = args
             p.currentDirectoryURL = cwd
-            p.environment = ProcessInfo.processInfo.environment.merging(env) { $1 }
+            // WPCENTER_LANG: os scripts respondem na língua da app (en ou pt).
+            p.environment = ProcessInfo.processInfo.environment
+                .merging(["WPCENTER_LANG": Runtime.language]) { $1 }
+                .merging(env) { $1 }
             let pipe = Pipe()
             p.standardOutput = pipe
             p.standardError = pipe // um só pipe: evita bloqueio quando um dos buffers enche
@@ -151,20 +166,20 @@ struct DatabaseProbe: Decodable {
 
     /// Mensagem para o utilizador, comparando o servidor real com o que foi escolhido.
     func verdict(for db: DatabaseConfig) -> (ok: Bool, text: String) {
-        guard ok, let engine, let version else { return (false, error ?? "Falha na ligação.") }
+        guard ok, let engine, let version else { return (false, error ?? L("Falha na ligação.")) }
         if engine != db.engine {
-            return (false, "O servidor é \(engine.title) \(version), mas escolheu \(db.engine.title).")
+            return (false, L("O servidor é \(engine.title) \(version), mas escolheu \(db.engine.title)."))
         }
         if let tables, tables > 0 {
-            return (false, "A base de dados \"\(db.name)\" já tem \(tables) tabelas wp_. Use uma base de dados vazia.")
+            return (false, L("A base de dados \"\(db.name)\" já tem \(tables) tabelas wp_. Use uma base de dados vazia."))
         }
         if !db.engine.cpanelVersions.contains(version) {
-            return (true, "Ligado a \(engine.title) \(version). Atenção: esta versão não está na lista do cPanel.")
+            return (true, L("Ligado a \(engine.title) \(version). Atenção: esta versão não está na lista do cPanel."))
         }
         if version != db.targetVersion {
-            return (true, "Ligado a \(engine.title) \(version) (escolheu \(db.targetVersion) como alvo).")
+            return (true, L("Ligado a \(engine.title) \(version) (escolheu \(db.targetVersion) como alvo)."))
         }
-        return (true, "Ligado a \(engine.title) \(version).")
+        return (true, L("Ligado a \(engine.title) \(version)."))
     }
 }
 
@@ -282,7 +297,7 @@ final class SiteStore: ObservableObject {
                 rootSocket = server.socket
             }
             let verdict = try await DatabaseProbe.run(db, create: true, rootSocket: rootSocket).verdict(for: db)
-            guard verdict.ok else { throw AppError(verdict.text) }
+            guard verdict.ok else { throw AppError(verbatim: verdict.text) }
         }
 
         var port = (sites.map(\.port).max() ?? 8900) + 1
@@ -472,13 +487,13 @@ final class SiteStore: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.processes[id] === proc else { return } // paragem pedida já o removeu
                     self.processes[id] = nil
-                    self.errorMessage = "O servidor parou inesperadamente. Registo: \(logURL.path)"
+                    self.errorMessage = L("O servidor parou inesperadamente. Registo: \(logURL.path)")
                 }
             }
             try p.run()
             processes[id] = p
         } catch {
-            errorMessage = "Não foi possível iniciar \(site.name): \(error.localizedDescription)"
+            errorMessage = L("Não foi possível iniciar \(site.name): \(error.localizedDescription)")
         }
     }
 
@@ -569,7 +584,7 @@ final class SiteStore: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.shares[id]?.process === proc else { return } // terminada a pedido
                     self.shares[id] = nil
-                    self.errorMessage = "O link de partilha de \(name) fechou inesperadamente. Registo: \(logURL.path)"
+                    self.errorMessage = L("O link de partilha de \(name) fechou inesperadamente. Registo: \(logURL.path)")
                 }
             }
             try p.run()
@@ -584,7 +599,7 @@ final class SiteStore: ObservableObject {
             guard shares[id]?.process === p else { return } // terminada enquanto abria
             guard let url, let host = url.host else {
                 stopSharing(site)
-                errorMessage = "Não foi possível criar o link de partilha. Confirme a ligação à internet. Registo: \(logURL.path)"
+                errorMessage = L("Não foi possível criar o link de partilha. Confirme a ligação à internet. Registo: \(logURL.path)")
                 return
             }
             // Perguntar ao DNS do sistema antes de o nome existir deixa a resposta "não existe" em cache uns minutos
@@ -599,7 +614,7 @@ final class SiteStore: ObservableObject {
             NSPasteboard.general.setString(url.absoluteString, forType: .string)
         } catch {
             stopSharing(site)
-            errorMessage = "Não foi possível partilhar \(site.name): \(error.localizedDescription)"
+            errorMessage = L("Não foi possível partilhar \(site.name): \(error.localizedDescription)")
         }
     }
 
@@ -660,7 +675,7 @@ final class SiteStore: ObservableObject {
         }
         let (status, out) = try await Runtime.exec(brew, ["install", server.formula], env: ["HOMEBREW_NO_ENV_HINTS": "1"])
         guard status == 0, server.isInstalled else {
-            throw AppError("A instalação de \(server.title) falhou:\n\(out.suffix(600))")
+            throw AppError("A instalação de \(server.title) falhou:\n\(String(out.suffix(600)))")
         }
     }
 
@@ -688,7 +703,7 @@ final class SiteStore: ObservableObject {
                 ])
             guard status == 0 else {
                 try? FileManager.default.removeItem(at: data) // só a pasta de dados vazia que acabámos de criar
-                throw AppError("Não foi possível preparar \(server.title):\n\(out.suffix(600))")
+                throw AppError("Não foi possível preparar \(server.title):\n\(String(out.suffix(600)))")
             }
         }
 
@@ -756,8 +771,8 @@ final class SiteStore: ObservableObject {
                                                       env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 })
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(AccessResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
-        else { throw AppError("O WordPress não respondeu:\n\(output.suffix(600))") }
-        guard result.ok else { throw AppError(result.error ?? "Falhou.") }
+        else { throw AppError("O WordPress não respondeu:\n\(String(output.suffix(600)))") }
+        guard result.ok else { throw result.error.map { AppError(verbatim: $0) } ?? AppError("Falhou.") }
         return result
     }
 
@@ -780,7 +795,7 @@ final class SiteStore: ObservableObject {
             Prefs.openInBrowser(try await adminLoginURL(site))
         } catch {
             Prefs.openInBrowser(site.url.appendingPathComponent("wp-admin/"))
-            errorMessage = "Não foi possível entrar automaticamente: \(error.localizedDescription)"
+            errorMessage = L("Não foi possível entrar automaticamente: \(error.localizedDescription)")
         }
     }
 
@@ -837,8 +852,10 @@ final class SiteStore: ObservableObject {
     struct IncompatibleCollationError: LocalizedError {
         let tables: [String]
         var errorDescription: String? {
-            "\(tables.count) tabela\(tables.count == 1 ? "" : "s") usa\(tables.count == 1 ? "" : "m") uma colação só do MySQL 8 (utf8mb4_0900_*), "
-                + "que o MariaDB do cPanel recusa: \(tables.joined(separator: ", "))."
+            let list = tables.joined(separator: ", ")
+            return tables.count == 1
+                ? L("1 tabela usa uma colação só do MySQL 8 (utf8mb4_0900_*), que o MariaDB do cPanel recusa: \(list).")
+                : L("\(tables.count) tabelas usam uma colação só do MySQL 8 (utf8mb4_0900_*), que o MariaDB do cPanel recusa: \(list).")
         }
     }
 
@@ -857,8 +874,8 @@ final class SiteStore: ObservableObject {
                                                       env: ["WPCENTER_ACTION": convert ? "convert" : "check"])
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(CollationResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
-        else { throw AppError("Não foi possível verificar a base de dados:\n\(output.suffix(600))") }
-        guard result.ok else { throw AppError(result.error ?? "Falhou.") }
+        else { throw AppError("Não foi possível verificar a base de dados:\n\(String(output.suffix(600)))") }
+        guard result.ok else { throw result.error.map { AppError(verbatim: $0) } ?? AppError("Falhou.") }
         return (convert ? result.converted : result.tables) ?? []
     }
 
@@ -888,9 +905,9 @@ final class SiteStore: ObservableObject {
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
               let result = try? JSONDecoder().decode(ExportResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
         else {
-            throw AppError("O backup do WPvivid falhou:\n\(output.suffix(800))")
+            throw AppError("O backup do WPvivid falhou:\n\(String(output.suffix(800)))")
         }
-        guard result.ok else { throw AppError(result.error) }
+        guard result.ok else { throw AppError(verbatim: result.error) }
         return result
     }
 
@@ -901,7 +918,7 @@ final class SiteStore: ObservableObject {
         stop(site)
         if FileManager.default.fileExists(atPath: site.path) {
             do { try await NSWorkspace.shared.recycle([site.folder]) } catch {
-                errorMessage = "Não foi possível mover \(site.path) para o Lixo: \(error.localizedDescription)"
+                errorMessage = L("Não foi possível mover \(site.path) para o Lixo: \(error.localizedDescription)")
                 return
             }
         }
