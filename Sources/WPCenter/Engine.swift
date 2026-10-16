@@ -2,18 +2,23 @@ import AppKit
 import Foundation
 import Security
 
-/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio.
+/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades).
+/// O build.sh copia-as do Studio e de Runtime/skills (as do WordPress/agent-skills que o Studio não traz).
 struct AgentSkill: Identifiable {
     let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
     let title: String
     let summary: String
 
     static let all = [
+        AgentSkill(id: "wordpress-router", title: "Encaminhamento WordPress", summary: "Classifica o projeto e escolhe a habilidade certa"),
+        AgentSkill(id: "wp-project-triage", title: "Diagnóstico do projeto", summary: "Relatório do tipo de projeto, ferramentas e testes"),
         AgentSkill(id: "wp-plugin-development", title: "Desenvolvimento de plugins", summary: "Hooks, Settings API, segurança e empacotamento"),
         AgentSkill(id: "wp-block-development", title: "Desenvolvimento de blocos", summary: "block.json, atributos, renderização e deprecações"),
         AgentSkill(id: "wp-block-themes", title: "Temas de blocos", summary: "theme.json, templates, padrões e variações de estilo"),
         AgentSkill(id: "wp-rest-api", title: "REST API", summary: "Rotas, endpoints, schema e autenticação"),
         AgentSkill(id: "wp-wpcli-and-ops", title: "WP-CLI e operações", summary: "Comandos, automação e search-replace, através do wpc wp"),
+        AgentSkill(id: "wp-performance", title: "Desempenho do servidor", summary: "Perfis com WP-CLI, consultas, autoload, cache e cron"),
+        AgentSkill(id: "wp-phpstan", title: "PHPStan", summary: "Análise estática: phpstan.neon, baselines e tipos do WordPress"),
         AgentSkill(id: "need-for-speed", title: "Desempenho", summary: "Auditoria de velocidade do site com recomendações"),
         AgentSkill(id: "rank-me-up", title: "SEO", summary: "Auditoria de SEO on-page com recomendações"),
         AgentSkill(id: "visual-design", title: "Design visual", summary: "Direção visual: layout, tipografia, cor e imagens"),

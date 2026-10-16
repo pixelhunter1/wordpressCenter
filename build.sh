@@ -35,6 +35,8 @@ for s in need-for-speed rank-me-up visual-design; do cp -R "$STUDIO/cli/skills/$
 for s in wp-plugin-development wp-block-development wp-block-themes wp-rest-api wp-wpcli-and-ops; do
   cp -R "$STUDIO/cli/wp-files/skills/$s" "$R/skills/"
 done
+# As do mesmo repositório que o Studio não traz vivem no nosso (Runtime/skills/README.md).
+cp -R Runtime/skills/. "$R/skills/"
 sed -i '' -e 's/ (auto-submitted to WordPress.com)//' \
   -e 's/local Studio site, so this is purely about preparing the site for production\..*/local WP Center site, so this is purely about preparing the site for production (migrated to cPanel with WPvivid)./' \
   "$R/skills/rank-me-up/SKILL.md"
