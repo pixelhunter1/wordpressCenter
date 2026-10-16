@@ -434,10 +434,18 @@ final class SiteStore: ObservableObject {
     }
 
     func stop(_ site: Site) {
-        if let p = processes.removeValue(forKey: site.id) { return Self.terminateTree(p) }
-        // Iniciado noutro processo (app ↔ wpc): termina só os PHP que servem esta pasta com o nosso router.
-        for pid in Self.serverPIDs(of: site) { kill(pid, SIGTERM) }
+        if let p = processes.removeValue(forKey: site.id) {
+            Self.terminateTree(p)
+        } else {
+            // Iniciado noutro processo (app ↔ wpc): termina só os PHP que servem esta pasta com o nosso router.
+            for pid in Self.serverPIDs(of: site) { kill(pid, SIGTERM) }
+        }
+        // O PHP demora um instante a libertar a porta: atualiza a interface assim que ela fica livre.
         objectWillChange.send()
+        Task {
+            for _ in 0..<30 where !Self.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(100)) }
+            objectWillChange.send()
+        }
     }
 
     private static func serverPIDs(of site: Site) -> [pid_t] {
@@ -753,6 +761,10 @@ final class SiteStore: ObservableObject {
             let fd = socket(family, SOCK_STREAM, 0)
             guard fd >= 0 else { return false }
             defer { close(fd) }
+            // Sem SO_REUSEADDR, ligações antigas em TIME_WAIT (~30 s depois de parar) fazem a porta parecer ocupada.
+            // Com ele, o bind continua a falhar se houver de facto um servidor à escuta.
+            var yes: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
             if family == AF_INET {
                 var a = sockaddr_in()
                 a.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)

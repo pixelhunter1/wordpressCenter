@@ -209,6 +209,8 @@ enum SelfTest {
             other.stop(site)
             try await Task.sleep(for: .milliseconds(800))
             check(!isListening(port: site.port), "parar termina o servidor e os workers")
+            // Os pedidos HTTP acima deixam ligações em TIME_WAIT: o site tem de aparecer parado na mesma.
+            check(!store.isRunning(site) && !other.isRunning(site), "site aparece parado logo após parar")
         } catch {
             check(false, "criar site: \(error.localizedDescription)")
         }
