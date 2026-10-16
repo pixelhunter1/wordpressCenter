@@ -22,7 +22,7 @@ cp -R "$PHP_DIR" "$R/php"
 cp -R "$STUDIO/cli/wp-files/latest/wordpress" "$R/wordpress"
 cp -R "$STUDIO/cli/wp-files/sqlite-database-integration" "$R/sqlite-database-integration"
 cp "$STUDIO/cli/wp-files/wp-cli/wp-cli.phar" "$R/wp-cli.phar"
-cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php "$R/"
+cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php Runtime/wpcenter-collation.php "$R/"
 
 # Skills para agentes de IA: só as que não dependem de ferramentas do Studio nem do WordPress.com.
 mkdir -p "$R/skills"

@@ -26,6 +26,7 @@ enum Runtime {
     static var wpvividExport: URL { root.appendingPathComponent("wpvivid-export.php") }
     static var access: URL { root.appendingPathComponent("wpcenter-access.php") }
     static var autologin: URL { root.appendingPathComponent("wpcenter-autologin.php") }
+    static var collation: URL { root.appendingPathComponent("wpcenter-collation.php") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
 
@@ -523,6 +524,9 @@ final class SiteStore: ObservableObject {
             "--no-defaults", "--basedir=\(prefix.path)", "--datadir=\(data.path)",
             "--port=\(server.port)", "--bind-address=127.0.0.1", "--socket=\(server.socket)",
             "--log-error=\(errorLog.path)", "--pid-file=\(dir.appendingPathComponent("server.pid").path)",
+            // Sem isto o MySQL 8 usa utf8mb4_0900_ai_ci (que o MariaDB do cPanel recusa) e o MariaDB usa latin1:
+            // plugins que criam tabelas sem colação ficam assim compatíveis com os dois.
+            "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci",
         ] + (server.engine == .mysql ? ["--mysqlx=OFF"] : [])
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
@@ -652,11 +656,51 @@ final class SiteStore: ObservableObject {
 
     /// Backup feito pelo próprio WPvivid do site (o mesmo plugin que restaura no cPanel), sem o que só existe no Mac.
     /// Os ficheiros ficam em <pasta dos sites>/Exportações/<site>-<data>.
-    func exportForCPanel(_ site: Site) async throws -> ExportResult {
+    /// Tabelas com colação exclusiva do MySQL 8 tornam o backup impossível de restaurar num cPanel com MariaDB.
+    struct IncompatibleCollationError: LocalizedError {
+        let tables: [String]
+        var errorDescription: String? {
+            "\(tables.count) tabela\(tables.count == 1 ? "" : "s") usa\(tables.count == 1 ? "" : "m") uma colação só do MySQL 8 (utf8mb4_0900_*), "
+                + "que o MariaDB do cPanel recusa: \(tables.joined(separator: ", "))."
+        }
+    }
+
+    private struct CollationResult: Decodable {
+        let ok: Bool
+        var error: String?
+        var tables: [String]?
+        var converted: [String]?
+    }
+
+    /// check: devolve as tabelas incompatíveis; convert: converte-as para utf8mb4_unicode_ci e devolve as convertidas.
+    @discardableResult
+    func collation(_ site: Site, convert: Bool) async throws -> [String] {
+        if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
+        let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.collation.path], cwd: site.folder,
+                                                      env: ["WPCENTER_ACTION": convert ? "convert" : "check"])
+        guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
+              let result = try? JSONDecoder().decode(CollationResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
+        else { throw AppError("Não foi possível verificar a base de dados:\n\(output.suffix(600))") }
+        guard result.ok else { throw AppError(result.error ?? "Falhou.") }
+        return (convert ? result.converted : result.tables) ?? []
+    }
+
+    /// check: recusa exportar se houver colações só do MySQL 8; convert: converte-as antes; ignore: exporta como está
+    /// (para um cPanel com MySQL 8, onde essas colações existem).
+    enum CollationPolicy { case check, convert, ignore }
+
+    func exportForCPanel(_ site: Site, collations: CollationPolicy = .check) async throws -> ExportResult {
         guard site.database.engine.needsServer else {
             throw AppError("Este site usa SQLite. O cPanel precisa de MySQL ou MariaDB: crie o site com MariaDB/MySQL para o poder exportar.")
         }
         if site.database.managed { try await ensureRunning(LocalServer(site.database)) }
+        if collations != .ignore {
+            let incompatible = try await collation(site, convert: false)
+            if !incompatible.isEmpty {
+                guard collations == .convert else { throw IncompatibleCollationError(tables: incompatible) }
+                try await collation(site, convert: true)
+            }
+        }
 
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmm"

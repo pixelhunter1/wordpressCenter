@@ -189,6 +189,7 @@ struct SiteDetailView: View {
     @State private var confirmReset = false
     @State private var exporting = false
     @State private var exportError: String?
+    @State private var collationTables: [String]?
     @State private var exportResult: SiteStore.ExportResult?
     @State private var showExclusions = false
 
@@ -364,7 +365,7 @@ struct SiteDetailView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
-                    Button(action: export) { Label("Exportar", systemImage: "square.and.arrow.up") }
+                    Button { export() } label: { Label("Exportar", systemImage: "square.and.arrow.up") }
                         .buttonStyle(.borderedProminent)
                         .disabled(exporting)
                     if exporting {
@@ -379,6 +380,20 @@ struct SiteDetailView: View {
                 }
                 .padding(.top, 10)
                 if let exportError { Banner(text: exportError).padding(.top, 10) }
+                if let collationTables {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Banner(text: "\(collationTables.count) tabela\(collationTables.count == 1 ? "" : "s") usa\(collationTables.count == 1 ? "" : "m") uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(collationTables.joined(separator: ", ")).")
+                        HStack {
+                            Button("Converter e exportar") { export(.convert) }
+                                .buttonStyle(.borderedProminent)
+                                .help("Converte para utf8mb4_unicode_ci (funciona em MySQL e MariaDB); os dados mantêm-se")
+                            Button("Exportar sem converter") { export(.ignore) }
+                                .help("Só se o seu cPanel usar MySQL 8")
+                        }
+                        .disabled(exporting)
+                    }
+                    .padding(.top, 10)
+                }
                 if let result = exportResult {
                     HStack(alignment: .top) {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -432,11 +447,19 @@ struct SiteDetailView: View {
 
     // MARK: Ações
 
-    private func export() {
+    private func export(_ collations: SiteStore.CollationPolicy = .check) {
         exporting = true
         exportError = nil
+        collationTables = nil
+        exportResult = nil
         Task {
-            do { exportResult = try await store.exportForCPanel(site) } catch { exportError = error.localizedDescription }
+            do {
+                exportResult = try await store.exportForCPanel(site, collations: collations)
+            } catch let error as SiteStore.IncompatibleCollationError {
+                collationTables = error.tables
+            } catch {
+                exportError = error.localizedDescription
+            }
             exporting = false
         }
     }

@@ -159,6 +159,8 @@ enum SelfTest {
                 check(site.database.name.hasPrefix("wpc_") && site.database.user.hasPrefix("wpc_")
                       && site.database.user != site.adminUser && site.database.password != site.adminPassword,
                       "BD com utilizador e palavra-passe próprios, separados do login")
+                let incompatible = try await store.collation(site, convert: false)
+                check(incompatible.isEmpty, "sem colações exclusivas do MySQL 8")
             }
             check(FileManager.default.fileExists(atPath: site.path + "/WPCENTER.md")
                   && FileManager.default.fileExists(atPath: site.path + "/.claude/skills/rank-me-up/SKILL.md"), "ficheiros para agentes criados")

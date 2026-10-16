@@ -32,7 +32,7 @@ enum CLI {
       wpc start           Inicia o site (e o servidor de base de dados, se for preciso)
       wpc stop            Para o site
       wpc admin           Abre o wp-admin já com sessão iniciada
-      wpc export          Backup WPvivid pronto a restaurar no cPanel
+      wpc export          Backup WPvivid pronto a restaurar no cPanel (--convert: corrige colações do MySQL 8)
       wpc wp <args…>      WP-CLI com o PHP e a base de dados do site
 
     Os comandos usam o site da pasta atual, ou o indicado em --path.
@@ -111,13 +111,18 @@ enum CLI {
 
         case "export":
             print("A criar o backup de \(site.name) com o WPvivid…")
+            fflush(stdout) // antes de qualquer erro em stderr
             do {
-                let result = try await store.exportForCPanel(site)
+                let policy: SiteStore.CollationPolicy = args.contains("--convert") ? .convert : args.contains("--no-convert") ? .ignore : .check
+                let result = try await store.exportForCPanel(site, collations: policy)
                 print("Pronto: \(result.files.count) ficheiro(s), \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))")
                 print(result.dir)
                 result.files.forEach { print("  \($0)") }
                 print("No cPanel: WPvivid → Backup & Restore → Upload → Restore.")
                 return 0
+            } catch let error as SiteStore.IncompatibleCollationError {
+                fail("\(error.localizedDescription)\nUse `wpc export --convert` para converter (recomendado) ou `wpc export --no-convert` se o cPanel usar MySQL 8.")
+                return 1
             } catch {
                 fail(error.localizedDescription)
                 return 1
