@@ -351,3 +351,15 @@
 "Servidores de base de dados" = "Database Servers";
 "Usado por um site: mude-o primeiro para outra versão" = "Used by a site: switch it to another version first";
 "Use a versão de PHP do servidor cPanel. Uma versão por instalar instala-se ao criar o site ou em Avançado." = "Use your cPanel server’s PHP version. A version that isn’t installed is installed when you create the site or in Advanced.";
+"%@ (por omissão)" = "%@ (default)";
+"A do sistema operativo" = "The one included with the operating system";
+"Cada servidor usa MySQL ou MariaDB, nunca os dois ao mesmo tempo. MySQL 5.7 e MariaDB 10.0 a 10.3 já não podem ser escolhidos em instalações novas." = "Each server uses MySQL or MariaDB, never both at the same time. MySQL 5.7 and MariaDB 10.0 to 10.3 can no longer be chosen for new installations.";
+"Disponível para Mac" = "Available for Mac";
+"Instalado com o script installpostgres; não existe em Ubuntu. O WordPress precisa de MySQL ou MariaDB." = "Installed with the installpostgres script; not available on Ubuntu. WordPress needs MySQL or MariaDB.";
+"MariaDB — padrão do cPanel" = "MariaDB — cPanel default";
+"MySQL" = "MySQL";
+"Por sistema operativo" = "By Operating System";
+"PostgreSQL — sem WordPress" = "PostgreSQL — no WordPress";
+"Versões no cPanel" = "Versions on cPanel";
+"Sistemas operativos" = "Operating systems";
+"WordPress %@, no seu Mac e sem serviços externos." = "WordPress %@, on your Mac with no external services.";

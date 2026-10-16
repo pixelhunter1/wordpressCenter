@@ -647,14 +647,6 @@ private struct SiteCommandItems: View {
 
 // MARK: - Componentes
 
-private struct CardBackground: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(nsColor: .separatorColor)))
-    }
-}
-
 /// Alvo de clique de 22×22 pt para botões só com ícone (os símbolos ficam com ~10 pt, difíceis de acertar).
 extension View {
     func iconHitTarget() -> some View { frame(minWidth: 22, minHeight: 22).contentShape(Rectangle()) }
@@ -827,17 +819,15 @@ struct NewSiteView: View {
     // Formulário agrupado, como as folhas da Apple: rótulos à esquerda, ajuda nos rodapés das secções.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Novo site WordPress")
-                .font(.title3.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
+            SheetHeader(title: "Novo site WordPress",
+                        subtitle: "WordPress \(Runtime.bundledWordPressVersion), no seu Mac e sem serviços externos.")
             Form {
                 siteSection
                 accessSection
                 databaseSection
             }
             .formStyle(.grouped)
+            .textFieldStyle(.roundedBorder) // no formulário agrupado, sem moldura não se distingue o que se pode escrever
             footer
         }
         .frame(width: 540, height: 640)
@@ -960,7 +950,7 @@ struct NewSiteView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        SheetFooter {
             if let error {
                 ErrorText(error).font(.callout).lineLimit(3)
             }
@@ -977,8 +967,6 @@ struct NewSiteView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!canCreate)
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 18)
     }
 
     private var canCreate: Bool {
@@ -1047,175 +1035,95 @@ struct NewSiteView: View {
 
 // MARK: - Bases de dados do cPanel
 
-struct CPanelView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    /// Colunas da matriz: cada versão que o cPanel deixa escolher, mais o PostgreSQL.
-    private let columns: [(engine: DatabaseEngine, version: String)] =
-        DatabaseEngine.mysql.cpanelVersions.map { (.mysql, $0) } + DatabaseEngine.mariadb.cpanelVersions.map { (.mariadb, $0) }
+/// Título de uma folha, separado do formulário: o conteúdo que faz scroll não passa por baixo dele.
+private struct SheetHeader: View {
+    let title: LocalizedStringKey
+    var subtitle: LocalizedStringKey?
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    // Folha de largura fixa: os três motores lado a lado, com a mesma altura.
-                    HStack(alignment: .top, spacing: 12) { engineCards }
-                        .fixedSize(horizontal: false, vertical: true)
-                    matrix
-                    notes
-                }
-                .padding(24)
-            }
-            Divider()
-            HStack {
-                Label("Fonte: documentação oficial do cPanel (docs.cpanel.net), revista em julho de 2026", systemImage: "checkmark.seal")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Fechar") { dismiss() }.keyboardShortcut(.defaultAction).controlSize(.large)
-            }
-            .padding(16)
-        }
-        .frame(width: 880, height: 760)
-    }
-
-    private var header: some View {
-        HStack(spacing: 14) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.accentColor.gradient)
-                .frame(width: 48, height: 48)
-                .overlay(Image(systemName: "server.rack").font(.title2).foregroundStyle(.white))
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Bases de dados do cPanel").font(.title2.weight(.semibold))
-                Text("O que o cPanel & WHM 136 ou superior permite instalar num servidor novo.")
-                    .foregroundStyle(.secondary)
+                Text(title).font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                if let subtitle { Text(subtitle).font(.callout).foregroundStyle(.secondary) }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 14)
+            Divider()
         }
-    }
-
-    @ViewBuilder private var engineCards: some View {
-        EngineSummary(engine: .mariadb, badge: "Padrão do cPanel", badgeColor: .green,
-                      note: "As versões 10.5 e 10.6 só existem em AlmaLinux e CloudLinux 8 e 9.")
-        EngineSummary(engine: .mysql, badge: nil, badgeColor: .clear,
-                      note: "O MySQL 8.0 não está disponível em AlmaLinux nem CloudLinux 10.")
-        EngineSummary(engine: .postgresql, badge: "Sem WordPress", badgeColor: .orange,
-                      note: "Usa a versão incluída no sistema operativo, instalada com o script installpostgres. Não existe em Ubuntu.")
-    }
-
-    private var matrix: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Disponibilidade por sistema operativo", systemImage: "square.grid.3x3").font(.headline)
-            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow {
-                    Text("Sistema").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        .gridColumnAlignment(.leading)
-                    ForEach(columns, id: \.version) { column in
-                        VStack(spacing: 1) {
-                            Text(column.engine.title).font(.caption2).foregroundStyle(.secondary)
-                            Text(column.version).font(.caption.weight(.semibold))
-                        }
-                    }
-                    VStack(spacing: 1) {
-                        Text("PostgreSQL").font(.caption2).foregroundStyle(.secondary)
-                        Text("SO").font(.caption.weight(.semibold))
-                    }
-                }
-                .padding(.vertical, 6)
-                Divider().gridCellUnsizedAxes(.horizontal)
-                ForEach(CPanelSupportRow.all) { row in
-                    GridRow {
-                        Text(row.os).frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(columns, id: \.version) { column in
-                            mark((column.engine == .mysql ? row.mysql : row.mariadb).contains(column.version),
-                                 L("\(column.engine.title) \(column.version) em \(row.os)"))
-                        }
-                        mark(row.postgresql != "Não suportado", L("PostgreSQL em \(row.os)"))
-                    }
-                    .padding(.vertical, 7)
-                    if row.id != CPanelSupportRow.all.last?.id {
-                        Divider().opacity(0.5).gridCellUnsizedAxes(.horizontal)
-                    }
-                }
-            }
-            HStack(spacing: 16) {
-                Label { Text("Disponível") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
-                Label { Text("Não disponível") } icon: { Image(systemName: "minus").foregroundStyle(.tertiary) }
-                Label { Text("Versão por omissão") } icon: { Image(systemName: "circle.fill").foregroundStyle(.green) }
-            }
-            .font(.caption)
-        }
-        .padding(16)
-        .background(CardBackground())
-    }
-
-    /// `context` diz ao VoiceOver a linha e a coluna ("MariaDB 10.11 em AlmaLinux 9"), que a grelha não transmite.
-    private func mark(_ available: Bool, _ context: String) -> some View {
-        Image(systemName: available ? "checkmark.circle.fill" : "minus")
-            .foregroundStyle(available ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
-            .frame(minWidth: 52)
-            .accessibilityLabel(available ? L("\(context): disponível") : L("\(context): não disponível"))
-    }
-
-    private var notes: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            note("arrow.left.arrow.right", "Cada servidor usa MySQL ou MariaDB, nunca os dois ao mesmo tempo.")
-            note("clock.arrow.circlepath", "MySQL 5.7 e MariaDB 10.0 a 10.3 já não podem ser escolhidos em instalações novas.")
-            note("exclamationmark.triangle", "O WordPress precisa de MySQL ou MariaDB; não funciona com PostgreSQL.")
-        }
-    }
-
-    private func note(_ symbol: String, _ text: LocalizedStringKey) -> some View {
-        Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
-        }
-        .font(.callout)
     }
 }
 
-private struct EngineSummary: View {
-    let engine: DatabaseEngine
-    let badge: LocalizedStringKey?
-    let badgeColor: Color
-    let note: LocalizedStringKey
+/// Barra de botões no fundo de uma folha, separada do formulário.
+private struct SheetFooter<Content: View>: View {
+    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Label(engine.title, systemImage: engine.symbol).font(.headline)
-                Spacer(minLength: 8)
-                if let badge {
-                    Text(badge).font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Capsule().fill(badgeColor.opacity(0.15)))
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 10) { content }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+        }
+    }
+}
+
+/// Referência das versões que o cPanel deixa instalar (menu Ajuda e folha Novo site), em formulário agrupado.
+struct CPanelView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Bases de dados do cPanel",
+                        subtitle: "O que o cPanel & WHM 136 ou superior permite instalar num servidor novo.")
+            Form {
+                Section {
+                    engineRows(.mariadb)
+                } header: {
+                    Text("MariaDB — padrão do cPanel")
+                } footer: {
+                    Text("As versões 10.5 e 10.6 só existem em AlmaLinux e CloudLinux 8 e 9.")
+                }
+                Section {
+                    engineRows(.mysql)
+                } header: {
+                    Text("MySQL")
+                } footer: {
+                    Text("O MySQL 8.0 não está disponível em AlmaLinux nem CloudLinux 10.")
+                }
+                Section {
+                    LabeledContent("Versão", value: L("A do sistema operativo"))
+                } header: {
+                    Text("PostgreSQL — sem WordPress")
+                } footer: {
+                    Text("Instalado com o script installpostgres; não existe em Ubuntu. O WordPress precisa de MySQL ou MariaDB.")
+                }
+                // As diferenças entre sistemas já estão nos rodapés de cada motor: aqui só a lista.
+                Section {
+                    LabeledContent("Sistemas operativos", value: CPanelSupportRow.all.map(\.os).joined(separator: ", "))
+                } header: {
+                    Text("Servidor")
+                } footer: {
+                    Text("Cada servidor usa MySQL ou MariaDB, nunca os dois ao mesmo tempo. MySQL 5.7 e MariaDB 10.0 a 10.3 já não podem ser escolhidos em instalações novas.")
                 }
             }
-            if engine.cpanelVersions.isEmpty {
-                Text("Versão do sistema").font(.callout.weight(.medium))
-            } else {
-                // Versões em etiquetas; a por omissão do cPanel fica destacada.
-                HStack(spacing: 5) {
-                    ForEach(engine.cpanelVersions, id: \.self) { version in
-                        let isDefault = engine == .mariadb && version == engine.defaultVersion
-                        Text(version)
-                            .font(.callout.weight(isDefault ? .semibold : .regular).monospacedDigit())
-                            .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(RoundedRectangle(cornerRadius: 6)
-                                .fill(isDefault ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1)))
-                            .accessibilityLabel(isDefault ? L("\(version), versão por omissão") : version)
-                    }
-                }
-            }
-            Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let mac = LocalServer.homebrewVersions[engine] {
-                Label("Neste Mac: \(mac.joined(separator: ", "))", systemImage: "laptopcomputer")
+            .formStyle(.grouped)
+            SheetFooter {
+                Text("Fonte: documentação oficial do cPanel (docs.cpanel.net), revista em julho de 2026")
                     .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Fechar") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(CardBackground())
+        .frame(width: 560, height: 640)
+    }
+
+    @ViewBuilder private func engineRows(_ engine: DatabaseEngine) -> some View {
+        LabeledContent("Versões no cPanel", value: engine.cpanelVersions.map {
+            engine == .mariadb && $0 == engine.defaultVersion ? L("\($0) (por omissão)") : $0
+        }.joined(separator: ", "))
+        LabeledContent("Disponível para Mac", value: (LocalServer.homebrewVersions[engine] ?? []).joined(separator: ", "))
     }
 }
 
@@ -1511,6 +1419,7 @@ private struct NewSiteSettings: View {
             }
         }
         .formStyle(.grouped)
+        .textFieldStyle(.roundedBorder) // no formulário agrupado, sem moldura não se distingue o que se pode escrever
     }
 }
 
