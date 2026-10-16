@@ -30,6 +30,7 @@ cp "$MAILPIT" "$R/mailpit" && chmod u+w "$R/mailpit"
 
 # Skills para agentes de IA: só as que não dependem de ferramentas do Studio nem do WordPress.com.
 mkdir -p "$R/skills"
+cp -R Runtime/skills/wp-center "$R/skills/" # habilidade própria: fluxo local → cPanel
 for s in need-for-speed rank-me-up visual-design; do cp -R "$STUDIO/cli/skills/$s" "$R/skills/"; done
 # Habilidades de WordPress (WordPress/agent-skills, GPL). A studio-cli fica de fora: o WPCENTER.md ensina o `wpc`.
 for s in wp-plugin-development wp-block-development wp-block-themes wp-rest-api wp-wpcli-and-ops; do
