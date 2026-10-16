@@ -15,6 +15,7 @@
   <img alt="PHP" src="https://img.shields.io/badge/PHP-8.1%E2%80%938.5-777BB4">
   <img alt="Databases" src="https://img.shields.io/badge/DB-MariaDB%20%7C%20MySQL%20%7C%20SQLite-003545">
   <img alt="Languages" src="https://img.shields.io/badge/UI-English%20%7C%20Portugu%C3%AAs-blue">
+  <a href="LICENSE"><img alt="License: GPL v2 or later" src="https://img.shields.io/badge/license-GPL--2.0--or--later-blue"></a>
 </p>
 
 <p align="center">
@@ -44,6 +45,8 @@
 - [Testing](#testing)
 - [Troubleshooting](#troubleshooting)
 - [Acknowledgements](#acknowledgements)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -344,3 +347,26 @@ WP Center builds on
 and [Homebrew](https://brew.sh).
 
 WP Center is an independent project and is not affiliated with Automattic, WordPress.com, cPanel, WPvivid or Cloudflare.
+
+## Contributing
+
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and follow the
+project's conventions.
+
+## License
+
+WP Center is free software, released under the [GNU General Public License v2.0 or later](LICENSE), the same licence as
+WordPress and WordPress Studio.
+
+The built app bundles third-party components that keep their own licences:
+
+| Component | License |
+|---|---|
+| [WordPress](https://wordpress.org) | GPL-2.0-or-later |
+| [SQLite Database Integration](https://github.com/WordPress/sqlite-database-integration) | GPL-2.0-or-later |
+| [WordPress agent skills](https://github.com/WordPress/agent-skills) (`Runtime/skills`) | GPL-2.0-or-later |
+| Agent skills from [WordPress Studio](https://github.com/Automattic/studio) | GPL-2.0-or-later |
+| [WP-CLI](https://wp-cli.org) | MIT |
+| [PHP](https://www.php.net) | PHP License 3.01 |
+| [Mailpit](https://github.com/axllent/mailpit) | MIT |
+| [cloudflared](https://github.com/cloudflare/cloudflared) | Apache-2.0 |
