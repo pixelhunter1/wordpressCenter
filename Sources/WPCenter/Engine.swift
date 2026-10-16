@@ -448,6 +448,24 @@ final class SiteStore: ObservableObject {
             }
     }
 
+    /// Ao sair: guarda que sites estavam a correr (para "Retomar") e para-os, salvo se o utilizador os quiser manter.
+    func prepareToQuit() {
+        Prefs.lastRunningSites = sites.filter(isRunning).map(\.id)
+        if Prefs.quitBehavior == .stop { stopAll() }
+    }
+
+    /// Ao abrir: aplica a preferência "Ao abrir o WP Center".
+    func applyLaunchBehavior() async {
+        let ids: Set<UUID> = switch Prefs.launchBehavior {
+        case .none: []
+        case .resume: Set(Prefs.lastRunningSites)
+        case .all: Set(sites.map(\.id))
+        }
+        for site in sites where ids.contains(site.id) && !isRunning(site) {
+            await start(site)
+        }
+    }
+
     func stopAll() {
         processes.values.forEach(Self.terminateTree)
         processes.removeAll()
@@ -578,9 +596,9 @@ final class SiteStore: ObservableObject {
     func openAdmin(_ site: Site) async {
         if !isRunning(site) { await start(site) }
         do {
-            NSWorkspace.shared.open(try await adminLoginURL(site))
+            Prefs.openInBrowser(try await adminLoginURL(site))
         } catch {
-            NSWorkspace.shared.open(site.url.appendingPathComponent("wp-admin/"))
+            Prefs.openInBrowser(site.url.appendingPathComponent("wp-admin/"))
             errorMessage = "Não foi possível entrar automaticamente: \(error.localizedDescription)"
         }
     }

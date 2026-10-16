@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 // MARK: - Janela principal
@@ -30,11 +31,17 @@ struct ContentView: View {
             .searchable(text: $search, placement: .sidebar, prompt: "Procurar")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
             .safeAreaInset(edge: .bottom) {
-                Button { showCPanel = true } label: {
-                    Label("Bases de dados do cPanel", systemImage: "server.rack")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 10) {
+                    Button { showCPanel = true } label: {
+                        Label("Bases de dados do cPanel", systemImage: "server.rack")
+                    }
+                    SettingsLink {
+                        Label("Definições", systemImage: "gearshape")
+                    }
+                    .help("Definições do WP Center (⌘,)")
                 }
                 .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
             }
         } detail: {
@@ -126,14 +133,13 @@ private struct SiteMenu: View {
         } else {
             Button("Iniciar") { Task { await store.start(site) } }
         }
-        Button("Abrir site") { NSWorkspace.shared.open(site.url) }
+        Button("Abrir site") { Prefs.openInBrowser(site.url) }
         Button("Abrir WP Admin") { Task { await store.openAdmin(site) } }
         Divider()
         Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) }
-        Button("Abrir no Terminal") {
-            guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
-            NSWorkspace.shared.open([site.folder], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
-        }
+        Button("Abrir no editor") { Prefs.openInEditor(site.folder) }
+            .disabled(Prefs.preferredEditor == nil)
+        Button("Abrir no Terminal") { Prefs.openInTerminal(site.folder) }
         Button("Copiar endereço") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(site.url.absoluteString, forType: .string)
@@ -272,7 +278,7 @@ struct SiteDetailView: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
-            Button { NSWorkspace.shared.open(site.url) } label: { Label("Abrir site", systemImage: "safari") }
+            Button { Prefs.openInBrowser(site.url) } label: { Label("Abrir site", systemImage: "safari") }
                 .keyboardShortcut("o")
                 .help("Abrir o site no navegador (⌘O)")
             Button {
@@ -648,9 +654,9 @@ struct NewSiteView: View {
 
     @State private var name = "O meu site"
     @State private var directory = SiteStore.defaultDirectory
-    @State private var user = SiteStore.defaultAdminUser
+    @State private var user = Prefs.customAdminUser ?? SiteStore.defaultAdminUser
     @State private var password = SiteStore.strongPassword(length: 20)
-    @State private var db = DatabaseConfig()
+    @State private var db = Prefs.defaultDatabase
     @State private var creating = false
     @State private var installing = false
     @State private var testing = false
@@ -682,7 +688,7 @@ struct NewSiteView: View {
         .onChange(of: db) { test = nil }
         .onAppear {
             // Reutiliza o último utilizador por conveniência; nunca a palavra-passe.
-            if let last = store.sites.last { user = last.adminUser }
+            if Prefs.customAdminUser == nil, let last = store.sites.last { user = last.adminUser }
         }
     }
 
@@ -1155,27 +1161,171 @@ private struct EngineSummary: View {
 // MARK: - Definições
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettings().tabItem { Label("Geral", systemImage: "gearshape") }
+            NewSiteSettings().tabItem { Label("Novos sites", systemImage: "plus.square.on.square") }
+            AppsSettings().tabItem { Label("Aplicações", systemImage: "app.badge") }
+            AdvancedSettings().tabItem { Label("Avançado", systemImage: "wrench.and.screwdriver") }
+        }
+        .frame(width: 580)
+    }
+}
+
+private struct GeneralSettings: View {
+    @AppStorage(Prefs.launchBehaviorKey) private var launch = LaunchBehavior.none
+    @AppStorage(Prefs.quitBehaviorKey) private var quit = QuitBehavior.stop
+    @AppStorage(Prefs.showMenuBarKey) private var showMenuBar = false
+    @State private var opensAtLogin = Prefs.opensAtLogin
+    @State private var needsApproval = Prefs.loginNeedsApproval
+    @State private var loginError: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Abrir o WP Center ao iniciar sessão", isOn: Binding(
+                    get: { opensAtLogin },
+                    set: { on in
+                        do { try Prefs.setOpensAtLogin(on); loginError = nil } catch { loginError = error.localizedDescription }
+                        opensAtLogin = Prefs.opensAtLogin
+                        needsApproval = Prefs.loginNeedsApproval
+                    }))
+                Picker("Ao abrir o WP Center", selection: $launch) {
+                    ForEach(LaunchBehavior.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Arranque")
+            } footer: {
+                if let loginError {
+                    Text(loginError).foregroundStyle(.red)
+                } else if needsApproval {
+                    HStack {
+                        Text("O macOS pede autorização em Itens de início de sessão.")
+                        Button("Abrir Definições do Sistema") { SMAppService.openSystemSettingsLoginItems() }.buttonStyle(.link)
+                    }
+                }
+            }
+
+            Section {
+                Picker("Ao sair do WP Center", selection: $quit) {
+                    ForEach(QuitBehavior.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Saída")
+            } footer: {
+                Text(quit == .keep
+                     ? "Os sites e as bases de dados continuam disponíveis; pare-os depois na app ou com wpc stop."
+                     : "Os sites param; as bases de dados geridas pela app também.")
+            }
+
+            Section {
+                Toggle("Mostrar o WP Center na barra de menus", isOn: $showMenuBar)
+            } footer: {
+                Text("Acesso rápido para iniciar, parar e abrir cada site. Com esta opção, fechar a janela não fecha a app.")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .frame(height: 420)
+    }
+}
+
+private struct NewSiteSettings: View {
+    @AppStorage(Prefs.defaultEngineKey) private var engine = DatabaseEngine.mariadb
+    @AppStorage(Prefs.defaultVersionKey) private var version = DatabaseEngine.mariadb.defaultVersion
+    @AppStorage(Prefs.defaultAdminUserKey) private var adminUser = ""
     @State private var directory = SiteStore.defaultDirectory
+
+    var body: some View {
+        Form {
+            Section("Local") {
+                LabeledContent("Pasta dos sites") {
+                    HStack {
+                        Text(directory.path).lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
+                        Button("Escolher…") {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.canCreateDirectories = true
+                            panel.directoryURL = directory
+                            if panel.runModal() == .OK, let url = panel.url {
+                                directory = url
+                                SiteStore.defaultDirectory = url
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
+                Picker("Motor", selection: $engine) {
+                    ForEach(DatabaseEngine.allCases.filter(\.isAvailable)) { Text($0.title).tag($0) }
+                }
+                .onChange(of: engine) { _, new in version = new.defaultVersion }
+                if engine.needsServer {
+                    Picker("Versão", selection: $version) {
+                        ForEach(engine.cpanelVersions, id: \.self) { Text("\(engine.title) \($0)").tag($0) }
+                    }
+                }
+            } header: {
+                Text("Base de dados por omissão")
+            } footer: {
+                Text("Use o motor e a versão do seu servidor cPanel: cada site novo já vem com eles escolhidos.")
+            }
+            Section {
+                TextField("Utilizador do WordPress", text: $adminUser, prompt: Text(SiteStore.defaultAdminUser))
+            } header: {
+                Text("Acesso por omissão")
+            } footer: {
+                Text("Em branco, usa o último utilizador criado. A palavra-passe é sempre nova e forte.")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .frame(height: 420)
+    }
+}
+
+private struct AppsSettings: View {
+    @AppStorage(Prefs.browserKey) private var browser = ""
+    @AppStorage(Prefs.editorKey) private var editor = ""
+    @AppStorage(Prefs.terminalKey) private var terminal = "com.apple.Terminal"
+    private let browsers = Prefs.browsers
+    private let editors = Prefs.installed(Prefs.knownEditors)
+    private let terminals = Prefs.installed(Prefs.knownTerminals)
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Navegador", selection: $browser) {
+                    Text("Predefinido do sistema").tag("")
+                    Divider()
+                    ForEach(browsers) { Text($0.name).tag($0.bundleID) }
+                }
+                Picker("Editor de código", selection: $editor) {
+                    Text(editors.first.map { "Automático (\($0.name))" } ?? "Nenhum instalado").tag("")
+                    if !editors.isEmpty { Divider() }
+                    ForEach(editors) { Text($0.name).tag($0.bundleID) }
+                }
+                Picker("Terminal", selection: $terminal) {
+                    ForEach(terminals) { Text($0.name).tag($0.bundleID) }
+                }
+            } footer: {
+                Text("Usados em Abrir site, WP Admin, Abrir no editor e Abrir no Terminal.")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .frame(height: 420)
+    }
+}
+
+private struct AdvancedSettings: View {
+    @EnvironmentObject var store: SiteStore
     @State private var cliInstalled = CLI.isInstalled
     @State private var cliError: String?
 
     var body: some View {
         Form {
-            LabeledContent("Pasta dos sites") {
-                HStack {
-                    Text(directory.path).lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
-                    Button("Escolher…") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true
-                        panel.canChooseFiles = false
-                        panel.canCreateDirectories = true
-                        if panel.runModal() == .OK, let url = panel.url {
-                            directory = url
-                            SiteStore.defaultDirectory = url
-                        }
-                    }
-                }
-            }
             Section {
                 Toggle("Comando wpc no terminal", isOn: Binding(
                     get: { cliInstalled },
@@ -1184,14 +1334,22 @@ struct SettingsView: View {
                         cliInstalled = CLI.isInstalled
                     }))
             } footer: {
-                Text(cliError ?? "Permite usar `wpc wp …`, `wpc start`, `wpc status` e os agentes de IA no terminal. Abra um novo terminal depois de ativar.")
+                Text(cliError ?? "wpc wp …, wpc start, wpc status, wpc admin e wpc export no terminal e para agentes de IA. Abra um novo terminal depois de ativar.")
                     .foregroundStyle(cliError == nil ? Color.secondary : Color.red)
             }
-            LabeledContent("WordPress incluído", value: Runtime.bundledWordPressVersion)
-            LabeledContent("PHP incluído", value: Runtime.phpVersion)
+            Section("Incluído na app") {
+                LabeledContent("WordPress", value: Runtime.bundledWordPressVersion)
+                LabeledContent("PHP", value: Runtime.phpVersion)
+                LabeledContent("WP Center", value: Runtime.appVersion)
+            }
+            Section("Dados") {
+                LabeledContent("Registos e bases de dados locais") {
+                    Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.storage]) }
+                }
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 520)
-        .fixedSize()
+        .scrollDisabled(true)
+        .frame(height: 420)
     }
 }

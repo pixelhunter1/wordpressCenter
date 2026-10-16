@@ -19,9 +19,10 @@ enum Main {
 struct WPCenterApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = SiteStore.shared
+    @AppStorage(Prefs.showMenuBarKey) private var showMenuBar = false
 
     var body: some Scene {
-        WindowGroup("WP Center") {
+        WindowGroup("WP Center", id: "main") {
             ContentView()
                 .environmentObject(store)
                 .frame(minWidth: 860, minHeight: 560)
@@ -30,14 +31,59 @@ struct WPCenterApp: App {
         .windowToolbarStyle(.unified)
         .commands { CommandGroup(replacing: .newItem) {} }
 
-        Settings { SettingsView() }
+        MenuBarExtra("WP Center", systemImage: "globe", isInserted: $showMenuBar) {
+            MenuBarContent().environmentObject(store)
+        }
+
+        Settings { SettingsView().environmentObject(store) }
+    }
+}
+
+/// Menu na barra de menus: estado de cada site e ações rápidas.
+private struct MenuBarContent: View {
+    @EnvironmentObject var store: SiteStore
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if store.sites.isEmpty {
+            Text("Ainda não há sites")
+        }
+        ForEach(store.sites) { site in
+            let running = store.isRunning(site)
+            Menu {
+                if running {
+                    Button("Parar") { store.stop(site) }
+                } else {
+                    Button("Iniciar") { Task { await store.start(site) } }
+                }
+                Button("Abrir site") { Prefs.openInBrowser(site.url) }
+                Button("Abrir WP Admin") { Task { await store.openAdmin(site) } }
+                Button("Abrir no editor") { Prefs.openInEditor(site.folder) }
+            } label: {
+                Label("\(site.name)  ·  \(running ? "a correr" : "parado")", systemImage: running ? "circle.fill" : "circle")
+            }
+        }
+        Divider()
+        Button("Abrir o WP Center") {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        SettingsLink { Text("Definições…") }.keyboardShortcut(",")
+        Divider()
+        Button("Sair do WP Center") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Com o ícone na barra de menus, fechar a janela não fecha a app.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !Prefs.showsMenuBar }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in await SiteStore.shared.applyLaunchBehavior() }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { SiteStore.shared.stopAll() }
+        MainActor.assumeIsolated { SiteStore.shared.prepareToQuit() }
     }
 }
 
