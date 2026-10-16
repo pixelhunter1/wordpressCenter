@@ -61,9 +61,11 @@ private struct MenuBarContent: View {
                 }
                 Button("Abrir site") { Prefs.openInBrowser(site.url) }
                 Button("Abrir WP Admin") { Task { await store.openAdmin(site) } }
+                ShareMenuItems(site: site)
                 Button("Abrir no editor") { Prefs.openInEditor(site.folder) }
             } label: {
-                Label("\(site.name)  ·  \(running ? "a correr" : "parado")", systemImage: running ? "circle.fill" : "circle")
+                Label("\(site.name)  ·  \(running ? "a correr" : "parado")\(store.shares[site.id] != nil ? "  ·  partilhado" : "")",
+                      systemImage: running ? "circle.fill" : "circle")
             }
         }
         Divider()
@@ -206,8 +208,16 @@ enum SelfTest {
 
             check(!SiteStore.isPortFree(site.port), "porta em uso é detetada")
 
+            // Link de partilha: um pedido com o Host do túnel (como o cloudflared faz) recebe o endereço público, sem localhost.
+            let shared = Runtime.output("/usr/bin/curl", ["-s", "-H", "Host: teste-wpc.trycloudflare.com", "http://127.0.0.1:\(site.port)/"])
+            check(shared.contains("https://teste-wpc.trycloudflare.com") && !shared.contains("localhost:\(site.port)"),
+                  "pelo link de partilha o site usa o endereço público")
+
             // Entrada automática: o código entra uma vez; reutilizado, é recusado.
             let loginURL = try await store.adminLoginURL(site)
+            let viaShare = Runtime.output("/usr/bin/curl", ["-s", "-o", "/dev/null", "-w", "%{redirect_url}",
+                                                            "-H", "CF-Connecting-IP: 203.0.113.9", loginURL.absoluteString])
+            check(viaShare.contains("wp-login.php"), "entrada automática recusa pedidos vindos do link de partilha")
             let first = try await URLSession(configuration: .ephemeral).data(from: loginURL)
             check(first.1.url?.absoluteString.hasSuffix("/wp-admin/") == true && String(decoding: first.0, as: UTF8.self).contains("action=logout"),
                   "WP Admin entra com sessão iniciada")

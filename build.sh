@@ -14,6 +14,9 @@ PHP_DIR=$(ls -d "$STUDIO"/php-bin/*/ | sort -V | tail -1)
 # Mailpit (MIT, um só executável sem dependências): vai dentro da app, quem a usa não instala nada.
 MAILPIT="${MAILPIT:-$(command -v mailpit || true)}"
 [[ -x "$MAILPIT" ]] || { echo "Mailpit não encontrado: brew install mailpit (ou defina MAILPIT=…)"; exit 1; }
+# cloudflared (Apache-2.0): links de partilha temporários (Cloudflare Quick Tunnel), também dentro da app.
+CLOUDFLARED="${CLOUDFLARED:-$(command -v cloudflared || true)}"
+[[ -x "$CLOUDFLARED" ]] || { echo "cloudflared não encontrado: brew install cloudflared (ou defina CLOUDFLARED=…)"; exit 1; }
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/runtime"
@@ -25,8 +28,9 @@ cp -R "$PHP_DIR" "$R/php"
 cp -R "$STUDIO/cli/wp-files/latest/wordpress" "$R/wordpress"
 cp -R "$STUDIO/cli/wp-files/sqlite-database-integration" "$R/sqlite-database-integration"
 cp "$STUDIO/cli/wp-files/wp-cli/wp-cli.phar" "$R/wp-cli.phar"
-cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php Runtime/wpcenter-collation.php Runtime/wpcenter-mail.php "$R/"
+cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wpcenter-access.php Runtime/wpcenter-autologin.php Runtime/wpcenter-collation.php Runtime/wpcenter-mail.php Runtime/wpcenter-share.php "$R/"
 cp "$MAILPIT" "$R/mailpit" && chmod u+w "$R/mailpit"
+cp "$CLOUDFLARED" "$R/cloudflared" && chmod u+w "$R/cloudflared"
 
 # Skills para agentes de IA: só as que não dependem de ferramentas do Studio nem do WordPress.com.
 mkdir -p "$R/skills"

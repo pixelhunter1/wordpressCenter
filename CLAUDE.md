@@ -61,6 +61,8 @@ open "dist/WP Center.app"                               # run the GUI
 
 **Email (Mailpit).** `build.sh` bundles the Homebrew `mailpit` binary (single file, system libs only), so users install nothing. `ensureMailpit()` starts it on site start (SMTP `127.0.0.1:1025`, UI `127.0.0.1:8025`, DB in the state dir) unless port 1025 is already taken, in which case the existing Mailpit is reused. `wpcenter-mail.php` (mu-plugin, copied like the autologin one and excluded from export by the `mu-plugins/wpcenter-` rule) routes `wp_mail()` there, only in the `local` environment and only when the port answers.
 
+**Sharing (Cloudflare Quick Tunnel).** The only network target besides `localhost`, and only on user action. `build.sh` bundles `cloudflared` from Homebrew. `SiteStore.share` runs `cloudflared tunnel --url http://127.0.0.1:<port>` with its output in `Logs/<site-id>-partilha.log`, reads the `https://….trycloudflare.com` URL from there, then waits for the name to resolve through DoH on 1.1.1.1 (an early system DNS lookup gets negatively cached by the router for minutes). Shares close on Terminate, on site stop and always on app quit. `wpcenter-share.php` (mu-plugin) detects the tunnel `Host`, sets `HTTPS`, defines `WP_HOME`/`WP_SITEURL` and swaps `http(s)://localhost:<port>` in the response, without touching the database. Tunnel requests arrive from 127.0.0.1, so the autologin refuses any request carrying `CF-Connecting-IP`.
+
 **Per-site agent files.** `writeAgentFiles` writes `AGENTS.md`, `CLAUDE.md`, `WPCENTER.md` and `.claude|.agents/skills` into each site, only when they're missing. They tell agents to use `wpc wp` instead of a system `wp`.
 
 **Other places to know:**

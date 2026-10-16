@@ -28,7 +28,7 @@ struct ContentView: View {
             List(selection: $selection) {
                 Section("Sites") {
                     ForEach(filteredSites) { site in
-                        SiteRow(site: site, running: store.isRunning(site))
+                        SiteRow(site: site, running: store.isRunning(site), shared: store.shares[site.id] != nil)
                             .tag(SidebarItem.site(site.id))
                             .contextMenu { SiteMenu(site: site, onRename: { siteToRename = site }) { siteToDelete = site } }
                     }
@@ -126,6 +126,7 @@ struct ContentView: View {
 private struct SiteRow: View {
     let site: Site
     let running: Bool
+    let shared: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -142,10 +143,14 @@ private struct SiteRow: View {
                 Text("localhost:\(String(site.port)) · \(site.database.engine.title) \(site.database.targetVersion)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
+            if shared {
+                Spacer(minLength: 4)
+                Image(systemName: "link").foregroundStyle(.secondary).help("Partilhado por link")
+            }
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(running ? "A correr" : "Parado")
+        .accessibilityValue((running ? "A correr" : "Parado") + (shared ? ", partilhado por link" : ""))
     }
 }
 
@@ -164,6 +169,7 @@ private struct SiteMenu: View {
         }
         Button("Abrir site") { Prefs.openInBrowser(site.url) }
         Button("Abrir WP Admin") { Task { await store.openAdmin(site) } }
+        ShareMenuItems(site: site)
         Divider()
         Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) }
         Button("Abrir no editor") { Prefs.openInEditor(site.folder) }
@@ -176,6 +182,26 @@ private struct SiteMenu: View {
         Divider()
         Button("Mudar nome…", action: onRename)
         Button("Apagar site…", role: .destructive, action: onDelete)
+    }
+}
+
+/// Partilhar / Copiar link / Terminar partilha, nos menus de contexto, "Mais" e barra de menus.
+struct ShareMenuItems: View {
+    @EnvironmentObject var store: SiteStore
+    let site: Site
+
+    var body: some View {
+        if let share = store.shares[site.id] {
+            if let url = share.url {
+                Button("Copiar link de partilha") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                }
+            }
+            Button("Terminar partilha") { store.stopSharing(site) }
+        } else {
+            Button("Partilhar por link") { Task { await store.share(site) } }
+        }
     }
 }
 
@@ -229,6 +255,7 @@ struct SiteDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                shareCard
                 // 2 colunas equilibradas em janelas largas; 1 coluna em janelas estreitas.
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 16) {
@@ -387,6 +414,51 @@ struct SiteDetailView: View {
                 InfoRow("Ficheiro") { Text("wp-content/database/.ht.sqlite").foregroundStyle(.secondary) }
             }
         }
+    }
+
+    private var shareCard: some View {
+        let share = store.shares[site.id]
+        return Card(title: "Partilhar com o cliente", symbol: "link",
+                    footnote: share == nil
+                        ? "Cria um link público temporário (Cloudflare), sem conta. Funciona só enquanto estiver aberto."
+                        : "Qualquer pessoa com o link vê o site. O link termina ao carregar em Terminar, ao parar o site ou ao sair do WP Center.") {
+            if let share, let url = share.url {
+                HStack(spacing: 10) {
+                    Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.green)
+                    Text(url.absoluteString)
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button { copy(url) } label: { Label("Copiar", systemImage: "doc.on.doc") }
+                        .help("Copiar o link (já foi copiado ao abrir)")
+                    Button { Prefs.openInBrowser(url) } label: { Label("Abrir", systemImage: "safari") }
+                    Button(role: .destructive) { store.stopSharing(site) } label: { Label("Terminar", systemImage: "xmark.circle") }
+                        .help("Fechar o link: deixa de funcionar de imediato")
+                }
+                Text("Link copiado. Cole-o numa mensagem para o cliente.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+            } else if share != nil {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("A criar o link…").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancelar") { store.stopSharing(site) }
+                }
+            } else {
+                Button { Task { await store.share(site) } } label: {
+                    Label(running ? "Partilhar" : "Iniciar e partilhar", systemImage: "link")
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Criar um link público para mostrar este site")
+            }
+        }
+    }
+
+    private func copy(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     private var exportCard: some View {

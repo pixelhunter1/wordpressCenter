@@ -53,6 +53,8 @@ enum Runtime {
     static var collation: URL { root.appendingPathComponent("wpcenter-collation.php") }
     static var mailPlugin: URL { root.appendingPathComponent("wpcenter-mail.php") }
     static var mailpit: URL { root.appendingPathComponent("mailpit") }
+    static var sharePlugin: URL { root.appendingPathComponent("wpcenter-share.php") }
+    static var cloudflared: URL { root.appendingPathComponent("cloudflared") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
 
@@ -480,6 +482,7 @@ final class SiteStore: ObservableObject {
     }
 
     func stop(_ site: Site) {
+        stopSharing(site) // o link nunca fica aberto para um site parado
         if let p = processes.removeValue(forKey: site.id) {
             Self.terminateTree(p)
         } else {
@@ -506,6 +509,7 @@ final class SiteStore: ObservableObject {
     /// Ao sair: guarda que sites estavam a correr (para "Retomar") e para-os, salvo se o utilizador os quiser manter.
     func prepareToQuit() {
         Prefs.lastRunningSites = sites.filter(isRunning).map(\.id)
+        stopAllSharing() // mesmo com "Manter os sites a correr": nada fica público sem a app aberta
         if Prefs.quitBehavior == .stop { stopAll() }
     }
 
@@ -522,12 +526,100 @@ final class SiteStore: ObservableObject {
     }
 
     func stopAll() {
+        stopAllSharing()
         processes.values.forEach(Self.terminateTree)
         processes.removeAll()
         databaseServers.values.forEach { $0.terminate() } // SIGTERM: o mysqld/mariadbd encerra de forma limpa
         databaseServers.removeAll()
         mailpit?.terminate()
         mailpit = nil
+    }
+
+    // MARK: Partilha (Cloudflare Quick Tunnel)
+
+    /// Link público de um site. `url` fica nil enquanto o link ainda não existe no DNS.
+    struct SiteShare {
+        let process: Process
+        var url: URL?
+    }
+
+    @Published private(set) var shares: [Site.ID: SiteShare] = [:]
+
+    /// Abre um link https://….trycloudflare.com para o site, iniciando-o se estiver parado.
+    /// É a única ligação para fora do Mac, e só a pedido: sem conta, termina com stopSharing, ao parar o site ou ao sair.
+    func share(_ site: Site) async {
+        guard shares[site.id] == nil else { return }
+        if !isRunning(site) { await start(site) }
+        guard isRunning(site) else { return }
+        do {
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            let logURL = logs.appendingPathComponent("\(site.id)-partilha.log")
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+            let log = try FileHandle(forWritingTo: logURL) // num ficheiro: um pipe por ler encheria e bloquearia o túnel
+
+            let p = Process()
+            p.executableURL = Runtime.cloudflared
+            p.arguments = ["tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:\(site.port)"]
+            p.standardOutput = log
+            p.standardError = log
+            let id = site.id, name = site.name
+            p.terminationHandler = { [weak self] proc in
+                try? log.close()
+                Task { @MainActor in
+                    guard let self, self.shares[id]?.process === proc else { return } // terminada a pedido
+                    self.shares[id] = nil
+                    self.errorMessage = "O link de partilha de \(name) fechou inesperadamente. Registo: \(logURL.path)"
+                }
+            }
+            try p.run()
+            shares[id] = SiteShare(process: p)
+
+            var url: URL?
+            for _ in 0..<120 where url == nil && shares[id]?.process === p { // até 30 s
+                try? await Task.sleep(for: .milliseconds(250))
+                let text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+                url = text.firstMatch(of: #/https://[a-z0-9-]+\.trycloudflare\.com/#).flatMap { URL(string: String($0.output)) }
+            }
+            guard shares[id]?.process === p else { return } // terminada enquanto abria
+            guard let url, let host = url.host else {
+                stopSharing(site)
+                errorMessage = "Não foi possível criar o link de partilha. Confirme a ligação à internet. Registo: \(logURL.path)"
+                return
+            }
+            // Perguntar ao DNS do sistema antes de o nome existir deixa a resposta "não existe" em cache uns minutos
+            // (o "Abrir" falhava): espera que o DNS público da Cloudflare já o conheça.
+            for _ in 0..<30 where shares[id]?.process === p {
+                if await Self.resolvesPublicly(host) { break }
+                try? await Task.sleep(for: .seconds(1))
+            }
+            guard shares[id]?.process === p else { return }
+            shares[id]?.url = url
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        } catch {
+            stopSharing(site)
+            errorMessage = "Não foi possível partilhar \(site.name): \(error.localizedDescription)"
+        }
+    }
+
+    func stopSharing(_ site: Site) {
+        shares.removeValue(forKey: site.id)?.process.terminate()
+    }
+
+    private func stopAllSharing() {
+        shares.values.forEach { $0.process.terminate() }
+        shares.removeAll()
+    }
+
+    /// DNS-over-HTTPS no 1.1.1.1: não passa pela cache do Mac nem do router.
+    private static func resolvesPublicly(_ host: String) async -> Bool {
+        var components = URLComponents(string: "https://1.1.1.1/dns-query")!
+        components.queryItems = [.init(name: "name", value: host), .init(name: "type", value: "A")]
+        var request = URLRequest(url: components.url!, timeoutInterval: 5)
+        request.setValue("application/dns-json", forHTTPHeaderField: "Accept")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (json["Answer"] as? [Any])?.isEmpty == false
     }
 
     // MARK: Emails (Mailpit)
@@ -642,7 +734,7 @@ final class SiteStore: ObservableObject {
     func installLocalHelpers(for site: Site) {
         let dir = site.folder.appendingPathComponent("wp-content/mu-plugins")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        for helper in [Runtime.autologin, Runtime.mailPlugin] {
+        for helper in [Runtime.autologin, Runtime.mailPlugin, Runtime.sharePlugin] {
             let target = dir.appendingPathComponent(helper.lastPathComponent)
             try? FileManager.default.removeItem(at: target)
             try? FileManager.default.copyItem(at: helper, to: target)

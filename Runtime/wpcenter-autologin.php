@@ -17,8 +17,8 @@ add_action(
 		if ( empty( $_GET['wpcenter_login'] ) || ! is_string( $_GET['wpcenter_login'] ) ) {
 			return;
 		}
-		// Só pedidos feitos no próprio Mac.
-		if ( ! in_array( $_SERVER['REMOTE_ADDR'] ?? '', array( '127.0.0.1', '::1' ), true ) ) {
+		// Só pedidos feitos no próprio Mac. Os que chegam pelo link de partilha também vêm de 127.0.0.1, mas trazem CF-Connecting-IP.
+		if ( ! in_array( $_SERVER['REMOTE_ADDR'] ?? '', array( '127.0.0.1', '::1' ), true ) || isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
 			return;
 		}
 
