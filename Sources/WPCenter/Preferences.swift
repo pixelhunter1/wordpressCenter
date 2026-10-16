@@ -45,6 +45,7 @@ enum Prefs {
     static let lastRunningSitesKey = "lastRunningSites"
     static let exportDirectoryKey = "exportDirectory"
     static let askExportLocationKey = "askExportLocation"
+    static let disabledSkillsKey = "disabledSkills"
 
     private static var defaults: UserDefaults { .standard }
 
@@ -55,6 +56,19 @@ enum Prefs {
     static var lastRunningSites: [UUID] {
         get { (defaults.stringArray(forKey: lastRunningSitesKey) ?? []).compactMap(UUID.init(uuidString:)) }
         set { defaults.set(newValue.map(\.uuidString), forKey: lastRunningSitesKey) }
+    }
+
+    // MARK: Habilidades
+
+    /// Guardam-se as desligadas, para que habilidades novas venham ligadas.
+    static var enabledSkills: Set<String> {
+        Set(AgentSkill.all.map(\.id)).subtracting(defaults.stringArray(forKey: disabledSkillsKey) ?? [])
+    }
+
+    static func setSkill(_ id: String, enabled: Bool) {
+        var disabled = Set(defaults.stringArray(forKey: disabledSkillsKey) ?? [])
+        if enabled { disabled.remove(id) } else { disabled.insert(id) }
+        defaults.set(disabled.sorted(), forKey: disabledSkillsKey)
     }
 
     // MARK: Exportações

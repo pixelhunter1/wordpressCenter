@@ -1235,13 +1235,14 @@ private struct EngineSummary: View {
 
 /// Secções das Definições, listadas na barra lateral como nas Definições do Sistema.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, newSites, apps, advanced
+    case general, newSites, skills, apps, advanced
     var id: Self { self }
 
     var title: String {
         switch self {
         case .general: "Geral"
         case .newSites: "Novos sites"
+        case .skills: "Habilidades"
         case .apps: "Aplicações"
         case .advanced: "Avançado"
         }
@@ -1251,6 +1252,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape.fill"
         case .newSites: "plus.square.on.square.fill"
+        case .skills: "sparkles"
         case .apps: "square.grid.2x2.fill"
         case .advanced: "wrench.and.screwdriver.fill"
         }
@@ -1260,6 +1262,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: .gray
         case .newSites: .blue
+        case .skills: .indigo
         case .apps: .purple
         case .advanced: .orange
         }
@@ -1316,6 +1319,7 @@ private struct SettingsPaneView: View {
             switch pane {
             case .general: GeneralSettings()
             case .newSites: NewSiteSettings()
+            case .skills: SkillsSettings()
             case .apps: AppsSettings()
             case .advanced: AdvancedSettings()
             }
@@ -1339,6 +1343,33 @@ struct OpenSettingsButton: View {
             NSApp.activate(ignoringOtherApps: true)
         }
         .keyboardShortcut(",")
+    }
+}
+
+private struct SkillsSettings: View {
+    @EnvironmentObject var store: SiteStore
+    @State private var enabled = Prefs.enabledSkills
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(AgentSkill.all) { skill in
+                    Toggle(isOn: Binding(
+                        get: { enabled.contains(skill.id) },
+                        set: { on in
+                            Prefs.setSkill(skill.id, enabled: on)
+                            enabled = Prefs.enabledSkills
+                            store.syncSkillsInAllSites()
+                        })) {
+                        Text(skill.title)
+                        Text(skill.summary)
+                    }
+                }
+            } footer: {
+                Text("Instruções que ensinam os agentes de IA (Claude Code, Codex…) a fazer tarefas de WordPress. As ativas são copiadas para .claude/skills e .agents/skills de cada site; desligar uma apaga-a de todos os sites.")
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
