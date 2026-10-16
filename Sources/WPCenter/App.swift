@@ -170,6 +170,14 @@ enum SelfTest {
         }
         for config in configs { await siteRoundTrip(store, in: tmp, config, check) }
         await importRoundTrip(store, in: tmp, check)
+        // SQLite: a exportação da WP Center leva a base de dados dentro do site e mantém o motor.
+        do {
+            let sqlite = try await store.create(name: "Selftest SQLite Origem", in: tmp, adminUser: "origem", adminPassword: "Origem-pw1",
+                                                database: DatabaseConfig(engine: .sqlite, targetVersion: ""))
+            await wpcenterRoundTrip(store, sqlite, in: tmp, check)
+        } catch {
+            check(false, "criar site SQLite para exportar: \(error.localizedDescription)")
+        }
         // Outras versões de PHP já instaladas com o Homebrew: um site SQLite com cada uma.
         for php in PHPVersions.all where php != PHPVersions.bundled && PHPVersions.isInstalled(php) {
             await siteRoundTrip(store, in: tmp, DatabaseConfig(engine: .sqlite, targetVersion: ""), php: php, check)
@@ -327,8 +335,38 @@ enum SelfTest {
             let valid = await store.credentialsAreValid(site)
             check(valid == true, "credenciais do site importado são válidas")
             store.stop(site)
+
+            await wpcenterRoundTrip(store, original, in: tmp, check)
         } catch {
             check(false, "importar site: \(error.localizedDescription)")
+        }
+    }
+
+    /// Exportar para outra WP Center e importar de volta: mesmo motor, endereço novo, responde e entra.
+    private static func wpcenterRoundTrip(_ store: SiteStore, _ original: Site, in tmp: URL, _ check: (Bool, String) -> Void) async {
+        let label = original.database.engine.title
+        print("— Exportar e importar entre WP Centers (\(label))")
+        do {
+            try await Runtime.php([Runtime.wpCli.path, "option", "update", "wpc_ida_volta", "\(original.url.absoluteString)/x"], cwd: original.folder)
+            let file = try await store.exportForWPCenter(original, to: tmp.appendingPathComponent("exportacoes"))
+            let peek = ExportOrigin.peek(file)
+            check(peek.origin == .wpcenter && peek.name == original.name, "\(label): ficheiro reconhecido como WP Center (\(peek.name))")
+            let copy = try await store.importSite(from: file, name: "\(original.name) Cópia", into: tmp.appendingPathComponent("copias"))
+            check(copy.database.engine == original.database.engine && copy.database.targetVersion == original.database.targetVersion
+                  && copy.php == original.php, "\(label): mesmo motor, versão e PHP")
+            let value = try await Runtime.php([Runtime.wpCli.path, "option", "get", "wpc_ida_volta"], cwd: copy.folder)
+            check(value == "\(copy.url.absoluteString)/x", "\(label): endereço trocado na cópia (\(value))")
+            await store.start(copy)
+            var status = 0
+            for _ in 0..<40 where status != 200 {
+                try await Task.sleep(for: .milliseconds(250))
+                status = ((try? await URLSession.shared.data(from: copy.url))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+            }
+            let valid = await store.credentialsAreValid(copy)
+            check(status == 200 && valid == true, "\(label): cópia responde 200 e entra com a palavra-passe nova")
+            store.stop(copy)
+        } catch {
+            check(false, "\(label): exportar/importar entre WP Centers: \(error.localizedDescription)")
         }
     }
 

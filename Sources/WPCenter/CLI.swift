@@ -27,14 +27,15 @@ enum CLI {
     Utilização: wpc [--path <pasta-do-site>] <comando>
 
     Comandos:
-      wpc list            Lista os sites
-      wpc import <ficheiro>  Importa uma exportação do WordPress Studio ou do Local (.zip/.tar.gz); --name "Nome"
-      wpc status          Estado, endereço, credenciais e base de dados do site
-      wpc start           Inicia o site (e o servidor de base de dados, se for preciso)
-      wpc stop            Para o site
-      wpc admin           Abre o wp-admin já com sessão iniciada
-      wpc export          Backup WPvivid pronto a restaurar no cPanel (--convert: corrige colações do MySQL 8)
-      wpc wp <args…>      WP-CLI com o PHP e a base de dados do site
+      wpc list               Lista os sites
+      wpc status             Estado, endereço, credenciais e base de dados do site
+      wpc start              Inicia o site (e o servidor de base de dados, se for preciso)
+      wpc stop               Para o site
+      wpc admin              Abre o wp-admin já com sessão iniciada
+      wpc export             Backup WPvivid pronto a restaurar no cPanel (--convert: corrige colações do MySQL 8)
+      wpc export --wpcenter  O site completo num .zip, para importar noutra WP Center
+      wpc import <ficheiro>  Cria um site a partir de uma exportação da WP Center, do Studio ou do Local; --name "Nome"
+      wpc wp <args…>         WP-CLI com o PHP e a base de dados do site
 
     Os comandos usam o site da pasta atual, ou o indicado em --path.
     """)
@@ -76,7 +77,7 @@ enum CLI {
             print(L("A importar \(archive.lastPathComponent)…"))
             fflush(stdout)
             do {
-                let site = try await store.importSite(from: archive, name: name ?? SiteStore.siteName(for: archive))
+                let site = try await store.importSite(from: archive, name: name ?? ExportOrigin.peek(archive).name)
                 print(L("Pronto: \(site.name) em \(site.url.absoluteString)  —  \(site.path)"))
                 print(L("Utilizador: \(site.adminUser)  Palavra-passe: \(site.adminPassword)"))
                 store.stopAll() // os servidores de base de dados arrancados só para a importação
@@ -133,6 +134,21 @@ enum CLI {
             if let error = store.errorMessage { fail(error); return 1 }
             print(L("wp-admin de \(site.name) aberto com sessão iniciada."))
             return 0
+
+        case "export" where args.contains("--wpcenter"):
+            print(L("A exportar \(site.name) para outra WP Center…"))
+            fflush(stdout)
+            do {
+                let file = try await store.exportForWPCenter(site)
+                let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) } ?? 0
+                print(L("Pronto: \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))"))
+                print(file.path)
+                print(L("Noutro Mac: WP Center → Ficheiro → Importar site, ou `wpc import <ficheiro>`."))
+                return 0
+            } catch {
+                fail(error.localizedDescription)
+                return 1
+            }
 
         case "export":
             print(L("A criar o backup de \(site.name) com o WPvivid…"))

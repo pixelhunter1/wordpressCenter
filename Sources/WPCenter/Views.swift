@@ -76,7 +76,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button { showImport = true } label: { Label("Importar site…", systemImage: "square.and.arrow.down") }
-                    .help("Importar uma exportação do WordPress Studio ou do Local")
+                    .help("Importar uma exportação da WP Center, do WordPress Studio ou do Local")
             }
             ToolbarItem {
                 Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
@@ -260,6 +260,9 @@ struct SiteDetailView: View {
     @State private var collationTables: [String]?
     @State private var exportResult: SiteStore.ExportResult?
     @State private var showExclusions = false
+    @State private var exportingWPC = false
+    @State private var exportWPCError: String?
+    @State private var exportWPCFile: URL?
     @State private var showShare = false
 
     private var running: Bool { store.isRunning(site) }
@@ -399,8 +402,36 @@ struct SiteDetailView: View {
         }
     }
 
+    /// As duas exportações lado a lado: para outra WP Center (o site tal como está) e para o cPanel (WPvivid).
     private var exportSection: some View {
         Section {
+            LabeledContent {
+                HStack(spacing: 8) {
+                    if exportingWPC {
+                        ProgressView().controlSize(.small)
+                        Text("A criar o ficheiro…").foregroundStyle(.secondary)
+                    }
+                    Button("Exportar…", action: exportWPC).disabled(exportingWPC)
+                }
+            } label: {
+                Text("Para outra WP Center")
+                Text("O site completo e a base de dados num só .zip. Importe-o noutro Mac em Ficheiro → Importar site.")
+            }
+            if let exportWPCError { ErrorText(exportWPCError) }
+            if let file = exportWPCFile {
+                LabeledContent {
+                    Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                } label: {
+                    Label {
+                        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) } ?? 0
+                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                        Text(file.lastPathComponent)
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    }
+                }
+            }
+
             if db.engine.needsServer {
                 LabeledContent {
                     HStack(spacing: 8) {
@@ -416,7 +447,7 @@ struct SiteDetailView: View {
                         Button("Exportar…") { export() }.disabled(exporting)
                     }
                 } label: {
-                    Text("Backup do WPvivid")
+                    Text("Para cPanel (WPvivid)")
                     Text("Pronto a restaurar no servidor, sem o que só existe no Mac.")
                 }
                 if let exportError { ErrorText(exportError) }
@@ -449,14 +480,16 @@ struct SiteDetailView: View {
                     }
                 }
             } else {
-                Text("Este site usa SQLite. O cPanel precisa de MySQL ou MariaDB.").foregroundStyle(.secondary)
+                LabeledContent("Para cPanel (WPvivid)") {
+                    Text("Precisa de MySQL ou MariaDB (este site usa SQLite).").foregroundStyle(.secondary)
+                }
             }
         } header: {
-            Text("Exportar para cPanel")
+            Text("Exportar")
         } footer: {
-            if db.engine.needsServer {
-                Text("Guardado em \(exportDestination). No cPanel: WPvivid → Backup & Restore → Upload → Restore.")
-            }
+            Text(db.engine.needsServer
+                ? L("Guardado em \(exportDestination). No cPanel: WPvivid → Backup & Restore → Upload → Restore.")
+                : L("Guardado em \(exportDestination)."))
         }
     }
 
@@ -508,19 +541,38 @@ struct SiteDetailView: View {
 
     // MARK: Ações
 
-    private func export(_ collations: SiteStore.CollationPolicy = .check) {
-        var directory = Prefs.exportDirectory
-        if Prefs.asksExportLocation {
-            let panel = NSOpenPanel()
-            panel.canChooseDirectories = true
-            panel.canChooseFiles = false
-            panel.canCreateDirectories = true
-            panel.directoryURL = directory
-            panel.prompt = L("Exportar aqui")
-            panel.message = L("Escolha onde guardar o backup de \(site.name)")
-            guard panel.runModal() == .OK, let url = panel.url else { return }
-            directory = url
+    /// A pasta de exportações das Definições, ou a que o utilizador escolher (se assim o pediu). nil = cancelou.
+    private func exportDirectory() -> URL? {
+        guard Prefs.asksExportLocation else { return Prefs.exportDirectory }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.directoryURL = Prefs.exportDirectory
+        panel.prompt = L("Exportar aqui")
+        panel.message = L("Escolha onde guardar a exportação de \(site.name)")
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private func exportWPC() {
+        guard let directory = exportDirectory() else { return }
+        exportingWPC = true
+        exportWPCError = nil
+        exportWPCFile = nil
+        Task {
+            do {
+                exportWPCFile = try await store.exportForWPCenter(site, to: directory)
+                announce("Exportação concluída")
+            } catch {
+                exportWPCError = error.localizedDescription
+                announce("A exportação falhou: \(error.localizedDescription)")
+            }
+            exportingWPC = false
         }
+    }
+
+    private func export(_ collations: SiteStore.CollationPolicy = .check) {
+        guard let directory = exportDirectory() else { return }
         exporting = true
         exportError = nil
         collationTables = nil
@@ -1046,20 +1098,21 @@ struct NewSiteView: View {
 
 // MARK: - Importar
 
-/// Cria um site a partir do ficheiro de exportação do WordPress Studio ou do Local (escolhido ou largado na folha).
+/// Cria um site a partir de uma exportação da WP Center, do WordPress Studio ou do Local (escolhida ou largada na folha).
 struct ImportSitesView: View {
     @EnvironmentObject var store: SiteStore
     @Environment(\.dismiss) private var dismiss
     let onImported: (Site) -> Void
 
     @State private var file: URL?
+    @State private var origin: ExportOrigin?
     @State private var name = ""
     @State private var importing = false
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SheetHeader(title: "Importar site", subtitle: "A partir de uma exportação do WordPress Studio ou do Local (.zip ou .tar.gz).")
+            SheetHeader(title: "Importar site", subtitle: "Exportações da WP Center, do WordPress Studio ou do Local (.zip ou .tar.gz).")
             Form {
                 Section {
                     LabeledContent("Ficheiro") {
@@ -1069,9 +1122,12 @@ struct ImportSitesView: View {
                             Button("Escolher…", action: chooseFile).disabled(importing)
                         }
                     }
+                    if file != nil {
+                        LabeledContent("Origem", value: origin?.rawValue ?? L("Confirmada ao importar"))
+                    }
                     TextField("Nome", text: $name, prompt: Text("O meu site")).accessibilityLabel("Nome do site").disabled(importing)
                 } footer: {
-                    Text("Também pode largar o ficheiro aqui. A base de dados vai para o MariaDB/MySQL do WP Center e o administrador recebe uma palavra-passe nova.")
+                    Text("Também pode largar o ficheiro aqui. Os sites da WP Center mantêm a base de dados; os do Studio e do Local passam para o MariaDB/MySQL. O administrador recebe uma palavra-passe nova.")
                 }
             }
             .formStyle(.grouped)
@@ -1092,7 +1148,7 @@ struct ImportSitesView: View {
                 .disabled(importing || file == nil || SiteStore.slug(name).isEmpty)
             }
         }
-        .frame(width: 540, height: 340)
+        .frame(width: 540, height: 370)
         .interactiveDismissDisabled(importing)
         .dropDestination(for: URL.self) { urls, _ in
             guard !importing, let url = urls.first else { return false }
@@ -1103,7 +1159,7 @@ struct ImportSitesView: View {
 
     private func pick(_ url: URL) {
         file = url
-        name = SiteStore.siteName(for: url)
+        (origin, name) = ExportOrigin.peek(url)
         error = nil
     }
 
@@ -1441,9 +1497,9 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Perguntar onde guardar em cada exportação", isOn: $askExportLocation)
             } header: {
-                Text("Exportações para o cPanel")
+                Text("Exportações")
             } footer: {
-                Text("Cada exportação fica numa subpasta com o nome do site e a data.")
+                Text("Para o cPanel, uma subpasta com o nome do site e a data; para outra WP Center, um só ficheiro .zip.")
             }
 
             Section {
