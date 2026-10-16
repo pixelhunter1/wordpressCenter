@@ -31,6 +31,7 @@ open "dist/WP Center.app"                               # run the GUI
 - State lives in `~/Library/Application Support/WP Center/`: `sites.json` (mode 0600, contains passwords), `Logs/<site-id>.log`, `Databases/<formula>/data`.
 - Each site is served by `php -S 127.0.0.1:<port> router.php` with `PHP_CLI_SERVER_WORKERS=4`. The workers survive a SIGTERM to the master, so stopping goes through `terminateTree` (`pkill -P`).
 - "Running" means either an owned `Process` or a bound port. `isPortFree` binds both 127.0.0.1 and ::1, because Studio listens on ::1 and browsers resolve `localhost` to IPv6 first. It sets `SO_REUSEADDR` so that TIME_WAIT sockets don't make a stopped site look running.
+- The generated `wp-config.php` sets `AUTOMATIC_UPDATER_DISABLED`. The bundled WordPress lags behind Studio releases, and a background core update would contact wordpress.org and answer 503 "Maintenance" mid-request (it used to break `--selftest`). Users can still update manually from the dashboard.
 - Servers started by another process (app ↔ `wpc`) are stopped by matching `lsof`/`ps` output against the router path and the site path.
 
 **Managed databases (`LocalServer`).**

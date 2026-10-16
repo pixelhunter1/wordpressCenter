@@ -387,6 +387,9 @@ final class SiteStore: ObservableObject {
 
         define( 'WP_DEBUG', false );
         define( 'WP_ENVIRONMENT_TYPE', 'local' );
+        // Sem atualizações em segundo plano: contactam o wordpress.org e deixam o site em 503 "Maintenance" a meio.
+        // Continua a ser possível atualizar à mão no Painel. O wp-config não vai no backup WPvivid.
+        define( 'AUTOMATIC_UPDATER_DISABLED', true );
 
         if ( ! defined( 'ABSPATH' ) ) {
         \tdefine( 'ABSPATH', __DIR__ . '/' );

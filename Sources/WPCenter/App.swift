@@ -116,6 +116,8 @@ enum SelfTest {
               && !pass.contains("'") && !pass.contains("\\"), "palavra-passe forte com 4 tipos de caracteres")
         check(SiteStore.wpConfig(for: DatabaseConfig(engine: .mysql, name: "a", user: "u", password: "p'x\\")).contains("'p\\'x\\\\'"),
               "wp-config escapa palavras-passe")
+        check(SiteStore.wpConfig(for: DatabaseConfig(engine: .sqlite)).contains("define( 'AUTOMATIC_UPDATER_DISABLED', true );"),
+              "wp-config desliga as atualizações automáticas")
 
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-selftest-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) } // só a pasta temporária criada aqui
