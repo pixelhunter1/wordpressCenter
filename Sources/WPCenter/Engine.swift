@@ -219,10 +219,9 @@ final class SiteStore: ObservableObject {
     @Published private(set) var sites: [Site] = []
     @Published private(set) var processes: [UUID: Process] = [:]
     @Published var errorMessage: String?
-    /// Pedido de ⌘, ou da barra de menus para a janela principal mostrar as Definições.
-    @Published var settingsRequested = false
-    /// Pedido do menu Ficheiro → Novo site… (⌘N) para a janela principal abrir a folha.
-    @Published var newSiteRequested = false
+    /// Pedido de um menu para a janela principal: Definições (⌘,), Novo site (⌘N), referência do cPanel (Ajuda).
+    enum WindowRequest { case settings, newSite, cpanel }
+    @Published var windowRequest: WindowRequest?
 
     let storage: URL
     private var file: URL { storage.appendingPathComponent("sites.json") }

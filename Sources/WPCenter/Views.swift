@@ -52,13 +52,8 @@ struct ContentView: View {
                             selection = .settings(pane)
                         }
                     }
-                    Button { showCPanel = true } label: {
-                        Label("Bases de dados do cPanel", systemImage: "server.rack")
-                    }
-                    .buttonStyle(.borderless)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
                 }
+                .padding(.bottom, 10)
             }
         } detail: {
             if case .settings(let pane) = selection {
@@ -107,23 +102,22 @@ struct ContentView: View {
         }
         .onAppear {
             selection = selection ?? store.sites.first.map { .site($0.id) }
-            showRequestedSettings()
-            if store.newSiteRequested { store.newSiteRequested = false; showNewSite = true } // janela aberta pelo ⌘N
+            handle(store.windowRequest) // a janela pode ter sido aberta pelo próprio pedido
         }
-        .onChange(of: store.settingsRequested) { showRequestedSettings() }
-        .onChange(of: store.newSiteRequested) { _, requested in
-            if requested { store.newSiteRequested = false; showNewSite = true }
-        }
+        .onChange(of: store.windowRequest) { _, request in handle(request) }
         // Sites iniciados/parados pelo `wpc` no terminal: refresca o estado de vez em quando.
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in store.objectWillChange.send() }
     }
 
-    /// ⌘, e a barra de menus pedem as Definições: abre a secção Geral, salvo se já houver uma aberta.
-    private func showRequestedSettings() {
-        guard store.settingsRequested else { return }
-        store.settingsRequested = false
-        if case .settings = selection { return }
-        selection = .settings(.general)
+    /// Pedidos dos menus (Definições ⌘,, Novo site ⌘N, Ajuda → cPanel) para esta janela.
+    private func handle(_ request: SiteStore.WindowRequest?) {
+        guard let request else { return }
+        store.windowRequest = nil
+        switch request {
+        case .settings: if case .settings = selection {} else { selection = .settings(.general) } // mantém a secção aberta
+        case .newSite: showNewSite = true
+        case .cpanel: showCPanel = true
+        }
     }
 }
 
@@ -253,40 +247,25 @@ struct SiteDetailView: View {
     @State private var collationTables: [String]?
     @State private var exportResult: SiteStore.ExportResult?
     @State private var showExclusions = false
+    @State private var showShare = false
 
     private var running: Bool { store.isRunning(site) }
     private var db: DatabaseConfig { site.database }
 
+    // Formulário agrupado, como nas Definições do Sistema; as ações vivem na barra de ferramentas e no menu Site.
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                shareCard
-                // 2 colunas equilibradas em janelas largas; 1 coluna em janelas estreitas.
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(spacing: 16) { accessCard; exportCard }.frame(minWidth: 340)
-                        VStack(spacing: 16) { databaseCard; detailsCard }.frame(minWidth: 340)
-                    }
-                    VStack(spacing: 16) { accessCard; databaseCard; exportCard; detailsCard }
-                }
-            }
-            .padding(24)
-            .frame(maxWidth: 1040)
-            .frame(maxWidth: .infinity)
+        Form {
+            Section { identity }
+            accessSection
+            databaseSection
+            exportSection
+            detailsSection
         }
+        .formStyle(.grouped)
         .navigationTitle(site.name)
-        .navigationSubtitle(running ? "A correr" : "Parado")
-        .toolbar {
-            ToolbarItem {
-                Menu {
-                    SiteMenu(site: site, onRename: onRename, onDelete: onDelete)
-                } label: {
-                    Label("Mais", systemImage: "ellipsis.circle")
-                }
-                .help("Mais ações")
-            }
-        }
+        .navigationSubtitle(starting ? "A iniciar…" : running ? "A correr" : "Parado")
+        .toolbar { toolbar }
+        .focusedSceneValue(\.selectedSite, site.id)
         .task(id: running) {
             if running { credentialsValid = await store.credentialsAreValid(site) }
         }
@@ -300,229 +279,166 @@ struct SiteDetailView: View {
         }
     }
 
-    // MARK: Cabeçalho
+    // MARK: Barra de ferramentas
 
-    private var header: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 16) {
-                identity
-                Spacer(minLength: 24)
-                actions
-            }
-            VStack(alignment: .leading, spacing: 16) {
-                identity
-                actions
-            }
-        }
-        .padding(20)
-        .background(CardBackground())
-    }
-
-    private var identity: some View {
-        HStack(alignment: .center, spacing: 16) {
-            SiteIcon(size: 60)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Text(site.name).font(.title2.weight(.semibold)).lineLimit(1)
-                    Button(action: onRename) { Image(systemName: "pencil").iconHitTarget() }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Mudar o nome do site")
-                        .accessibilityLabel("Mudar o nome do site")
-                    StatusPill(running: running, busy: starting)
-                }
-                Link(site.url.absoluteString, destination: site.url)
-                    .font(.callout)
-                    .disabled(!running)
-                HStack(spacing: 6) {
-                    Chip(text: "WordPress \(site.wpVersion)")
-                    Chip(text: "PHP \(Runtime.phpVersion)")
-                    Chip(text: "\(db.engine.title) \(db.targetVersion)".trimmingCharacters(in: .whitespaces))
-                }
-            }
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            Button { Prefs.openInBrowser(site.url) } label: { Label("Abrir site", systemImage: "safari") }
-                .keyboardShortcut("o")
-                .help("Abrir o site no navegador (⌘O)")
-            Button {
-                openingAdmin = true
-                Task { await store.openAdmin(site); openingAdmin = false }
-            } label: {
-                Label("WP Admin", systemImage: "gauge.with.dots.needle.33percent")
-            }
-            .disabled(openingAdmin)
-            .keyboardShortcut("a", modifiers: [.command, .shift])
-            .help("Abrir o painel já com sessão iniciada (⇧⌘A)")
-            Button { Task { await store.openMail() } } label: { Label("Emails", systemImage: "envelope") }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-                .help("Ver os emails enviados pelos sites, apanhados pelo Mailpit (⇧⌘E)")
+    /// Ícone e nome lado a lado (como "Ícone e texto" no Finder): só com ícones não se percebia o que cada botão faz.
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItemGroup {
             if running {
-                Button { store.stop(site) } label: { Label("Parar", systemImage: "stop.fill") }
-                    .keyboardShortcut("r")
+                Button { store.stop(site) } label: { Label("Parar", systemImage: "stop.fill").labelStyle(.titleAndIcon) }
                     .help("Parar o site (⌘R)")
             } else {
                 Button {
                     starting = true
                     Task { await store.start(site); starting = false }
                 } label: {
-                    Label("Iniciar", systemImage: "play.fill")
+                    Label("Iniciar", systemImage: "play.fill").labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(starting)
-                .keyboardShortcut("r")
                 .help("Iniciar o site (⌘R)")
             }
+            Button { Prefs.openInBrowser(site.url) } label: { Label("Abrir site", systemImage: "safari").labelStyle(.titleAndIcon) }
+                .help("Abrir o site no navegador (⌘O)")
+            Button {
+                openingAdmin = true
+                Task { await store.openAdmin(site); openingAdmin = false }
+            } label: {
+                Label("WP Admin", systemImage: "gauge.with.dots.needle.33percent").labelStyle(.titleAndIcon)
+            }
+            .disabled(openingAdmin)
+            .help("Abrir o painel já com sessão iniciada (⇧⌘A)")
+            Button { Task { await store.openMail() } } label: { Label("Emails", systemImage: "envelope").labelStyle(.titleAndIcon) }
+                .help("Ver os emails enviados pelos sites, no Mailpit (⇧⌘E)")
+            Button { showShare.toggle() } label: {
+                Label(store.shares[site.id] == nil ? "Partilhar" : "Partilhado",
+                      systemImage: store.shares[site.id] == nil ? "link" : "link.circle.fill")
+                    .labelStyle(.titleAndIcon)
+            }
+            .help(store.shares[site.id] == nil ? "Partilhar com o cliente por link" : "Partilhado por link")
+            .popover(isPresented: $showShare, arrowEdge: .bottom) { SharePopover(site: site) }
+            Menu {
+                SiteMenu(site: site, onRename: onRename, onDelete: onDelete)
+            } label: {
+                Label("Mais", systemImage: "ellipsis.circle")
+            }
+            .help("Mais ações")
         }
-        .controlSize(.large)
-        .labelStyle(.titleAndIcon)
     }
 
-    // MARK: Cartões
+    // MARK: Secções
 
-    private var accessCard: some View {
-        Card(title: "Acesso ao WordPress", symbol: "person.badge.key",
-             footnote: "WP Admin entra já com sessão iniciada, com um código de uso único válido 60 segundos e só neste Mac.") {
-            InfoRow("Utilizador") { CopyableText(site.adminUser, what: "utilizador do WordPress") }
-            Divider()
-            InfoRow("Palavra-passe") { SecretText(value: site.adminPassword, what: "palavra-passe do WordPress") }
+    private var identity: some View {
+        HStack(spacing: 14) {
+            SiteIcon(size: 48)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(site.name).font(.title3.weight(.semibold)).lineLimit(1)
+                    Button(action: onRename) { Image(systemName: "pencil").iconHitTarget() }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Mudar o nome do site")
+                        .accessibilityLabel("Mudar o nome do site")
+                }
+                Link(site.url.absoluteString, destination: site.url)
+                    .disabled(!running)
+                Text("WordPress \(site.wpVersion) · PHP \(Runtime.phpVersion) · \(db.engine.title) \(db.targetVersion)"
+                    .trimmingCharacters(in: .whitespaces))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var accessSection: some View {
+        Section {
+            LabeledContent("Utilizador") { CopyableText(site.adminUser, what: "utilizador do WordPress") }
+            LabeledContent("Palavra-passe") { SecretText(value: site.adminPassword, what: "palavra-passe do WordPress") }
             if credentialsValid == false {
                 Banner(text: "Estas credenciais já não funcionam neste site (foi restaurado com o WPvivid?).")
-                    .padding(.top, 10)
             }
             HStack {
+                if resetting { ProgressView().controlSize(.small) }
+                Spacer()
                 Button(credentialsValid == false ? "Repor acesso" : "Gerar nova palavra-passe…") {
                     if credentialsValid == false { resetAccess() } else { confirmReset = true }
                 }
-                .buttonStyle(.bordered)
-                .tint(credentialsValid == false ? .orange : nil)
                 .disabled(resetting)
-                if resetting { ProgressView().controlSize(.small) }
             }
-            .padding(.top, 10)
+        } header: {
+            Text("Acesso ao WordPress")
+        } footer: {
+            Text("WP Admin entra já com sessão iniciada, com um código de uso único válido 60 segundos e só neste Mac.")
         }
     }
 
-    private var databaseCard: some View {
-        Card(title: "Base de dados", symbol: "cylinder.split.1x2") {
-            InfoRow("Motor") { Text("\(db.engine.title) \(db.targetVersion)") }
-            Divider()
+    private var databaseSection: some View {
+        Section("Base de dados") {
+            LabeledContent("Motor", value: "\(db.engine.title) \(db.targetVersion)".trimmingCharacters(in: .whitespaces))
             if db.engine.needsServer {
-                InfoRow("Onde") { Text(db.managed ? "Neste Mac (gerida pela app)" : "Servidor existente") }
-                Divider()
-                InfoRow("Nome") { CopyableText(db.name, what: "nome da base de dados") }
-                Divider()
-                InfoRow("Utilizador") { CopyableText(db.user, what: "utilizador da base de dados") }
-                Divider()
-                InfoRow("Palavra-passe") { SecretText(value: db.password, what: "palavra-passe da base de dados") }
-                Divider()
-                InfoRow("Servidor") { CopyableText("\(db.host):\(String(db.port))", what: "endereço do servidor") }
+                LabeledContent("Onde", value: db.managed ? "Neste Mac (gerida pela app)" : "Servidor existente")
+                LabeledContent("Nome") { CopyableText(db.name, what: "nome da base de dados") }
+                LabeledContent("Utilizador") { CopyableText(db.user, what: "utilizador da base de dados") }
+                LabeledContent("Palavra-passe") { SecretText(value: db.password, what: "palavra-passe da base de dados") }
+                LabeledContent("Servidor") { CopyableText("\(db.host):\(String(db.port))", what: "endereço do servidor") }
             } else {
-                InfoRow("Ficheiro") { Text("wp-content/database/.ht.sqlite").foregroundStyle(.secondary) }
+                LabeledContent("Ficheiro", value: "wp-content/database/.ht.sqlite")
             }
         }
     }
 
-    private var shareCard: some View {
-        let share = store.shares[site.id]
-        return Card(title: "Partilhar com o cliente", symbol: "link",
-                    footnote: share == nil
-                        ? "Cria um link público temporário (Cloudflare), sem conta. Funciona só enquanto estiver aberto."
-                        : nil) {
-            if let share, let url = share.url {
-                HStack(spacing: 10) {
-                    Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.green)
-                    Text(url.absoluteString)
-                        .font(.body.monospaced())
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button { copy(url) } label: { Label("Copiar", systemImage: "doc.on.doc") }
-                        .help("Copiar o link (já foi copiado ao abrir)")
-                    Button { Prefs.openInBrowser(url) } label: { Label("Abrir", systemImage: "safari") }
-                    Button(role: .destructive) { store.stopSharing(site) } label: { Label("Terminar", systemImage: "xmark.circle") }
-                        .help("Fechar o link: deixa de funcionar de imediato")
-                }
-            } else if share != nil {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("A criar o link…").foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Cancelar") { store.stopSharing(site) }
-                }
-            } else {
-                Button { Task { await store.share(site) } } label: {
-                    Label(running ? "Partilhar" : "Iniciar e partilhar", systemImage: "link")
-                }
-                .buttonStyle(.borderedProminent)
-                .help("Criar um link público para mostrar este site")
-            }
-        }
-    }
-
-    private func copy(_ url: URL) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
-
-    private var exportCard: some View {
-        Card(title: "Exportar para cPanel", symbol: "shippingbox",
-             footnote: db.engine.needsServer
-                ? "Guardado em \(exportDestination). No cPanel: WPvivid → Backup & Restore → Upload → Restore." : nil) {
+    private var exportSection: some View {
+        Section {
             if db.engine.needsServer {
-                Text("Backup do WPvivid pronto a restaurar no servidor, sem o que só existe no Mac.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Button { export() } label: { Label("Exportar", systemImage: "square.and.arrow.up") }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(exporting)
-                    if exporting {
-                        ProgressView().controlSize(.small)
-                        Text("A criar o backup…").foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button { showExclusions.toggle() } label: { Image(systemName: "info.circle").iconHitTarget() }
-                        .buttonStyle(.borderless)
-                        .help("O que fica de fora")
-                        .accessibilityLabel("O que fica de fora da exportação")
-                        .popover(isPresented: $showExclusions, arrowEdge: .bottom) { exclusions }
-                }
-                .padding(.top, 10)
-                if let exportError { Banner(text: exportError).padding(.top, 10) }
-                if let collationTables {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Banner(text: "\(collationTables.count) tabela\(collationTables.count == 1 ? "" : "s") usa\(collationTables.count == 1 ? "" : "m") uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(collationTables.joined(separator: ", ")).")
-                        HStack {
-                            Button("Converter e exportar") { export(.convert) }
-                                .buttonStyle(.borderedProminent)
-                                .help("Converte para utf8mb4_unicode_ci (funciona em MySQL e MariaDB); os dados mantêm-se")
-                            Button("Exportar sem converter") { export(.ignore) }
-                                .help("Só se o seu cPanel usar MySQL 8")
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        if exporting {
+                            ProgressView().controlSize(.small)
+                            Text("A criar o backup…").foregroundStyle(.secondary)
                         }
-                        .disabled(exporting)
+                        Button { showExclusions.toggle() } label: { Image(systemName: "info.circle").iconHitTarget() }
+                            .buttonStyle(.borderless)
+                            .help("O que fica de fora")
+                            .accessibilityLabel("O que fica de fora da exportação")
+                            .popover(isPresented: $showExclusions, arrowEdge: .bottom) { exclusions }
+                        Button("Exportar…") { export() }.disabled(exporting)
                     }
-                    .padding(.top, 10)
+                } label: {
+                    Text("Backup do WPvivid")
+                    Text("Pronto a restaurar no servidor, sem o que só existe no Mac.")
+                }
+                if let exportError { ErrorText(exportError) }
+                if let collationTables {
+                    Banner(text: "\(collationTables.count) tabela\(collationTables.count == 1 ? "" : "s") usa\(collationTables.count == 1 ? "" : "m") uma colação só do MySQL 8, que o MariaDB do cPanel recusa: \(collationTables.joined(separator: ", ")).")
+                    HStack {
+                        Spacer()
+                        Button("Exportar sem converter") { export(.ignore) }
+                            .help("Só se o seu cPanel usar MySQL 8")
+                        Button("Converter e exportar") { export(.convert) }
+                            .buttonStyle(.borderedProminent)
+                            .help("Converte para utf8mb4_unicode_ci (funciona em MySQL e MariaDB); os dados mantêm-se")
+                    }
+                    .disabled(exporting)
                 }
                 if let result = exportResult {
-                    HStack(alignment: .top) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(result.files.count) ficheiro\(result.files.count == 1 ? "" : "s") · \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))")
-                                .fontWeight(.medium)
-                            Text(result.folder.lastPathComponent).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
+                    LabeledContent {
                         Button("Mostrar no Finder") { NSWorkspace.shared.activateFileViewerSelecting([result.folder]) }
+                    } label: {
+                        Label {
+                            Text("\(result.files.count) ficheiro\(result.files.count == 1 ? "" : "s") · \(ByteCountFormatter.string(fromByteCount: result.totalBytes, countStyle: .file))")
+                            Text(result.folder.lastPathComponent)
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        }
                     }
-                    .padding(.top, 10)
                 }
             } else {
                 Text("Este site usa SQLite. O cPanel precisa de MySQL ou MariaDB.").foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Exportar para cPanel")
+        } footer: {
+            if db.engine.needsServer {
+                Text("Guardado em \(exportDestination). No cPanel: WPvivid → Backup & Restore → Upload → Restore.")
             }
         }
     }
@@ -546,21 +462,18 @@ struct SiteDetailView: View {
         .frame(width: 380, alignment: .leading)
     }
 
-    private var detailsCard: some View {
-        Card(title: "Detalhes", symbol: "info.circle") {
-            InfoRow("Pasta") {
+    private var detailsSection: some View {
+        Section("Detalhes") {
+            LabeledContent("Pasta") {
                 HStack(spacing: 6) {
                     Text(site.path).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                     Button { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) } label: { Image(systemName: "folder").iconHitTarget() }
                         .buttonStyle(.borderless).help("Mostrar no Finder").accessibilityLabel("Mostrar a pasta no Finder")
                 }
             }
-            Divider()
-            InfoRow("WordPress") { Text(site.wpVersion) }
-            Divider()
-            InfoRow("PHP") { Text(Runtime.phpVersion) }
-            Divider()
-            InfoRow("Criado") { Text(site.createdAt.formatted(date: .abbreviated, time: .shortened)) }
+            LabeledContent("WordPress", value: site.wpVersion)
+            LabeledContent("PHP", value: Runtime.phpVersion)
+            LabeledContent("Criado", value: site.createdAt.formatted(date: .abbreviated, time: .shortened))
         }
     }
 
@@ -612,6 +525,108 @@ struct SiteDetailView: View {
     }
 }
 
+/// Popover do botão Partilhar: criar o link, copiá-lo, abri-lo e terminá-lo.
+private struct SharePopover: View {
+    @EnvironmentObject var store: SiteStore
+    let site: Site
+
+    var body: some View {
+        let share = store.shares[site.id]
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Partilhar com o cliente").font(.headline).accessibilityAddTraits(.isHeader)
+            if let share, let url = share.url {
+                Text(url.absoluteString)
+                    .font(.body.monospaced())
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack {
+                    Button(role: .destructive) { store.stopSharing(site) } label: { Text("Terminar partilha") }
+                        .help("Fechar o link: deixa de funcionar de imediato")
+                    Spacer()
+                    Button("Abrir") { Prefs.openInBrowser(url) }
+                    Button("Copiar link") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                        announce("Copiado")
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            } else if share != nil {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("A criar o link…").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancelar") { store.stopSharing(site) }
+                }
+            } else {
+                Text("Cria um link público temporário (Cloudflare), sem conta. Funciona só enquanto estiver aberto e termina ao parar o site ou sair do WP Center.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button(store.isRunning(site) ? "Criar link" : "Iniciar e criar link") { Task { await store.share(site) } }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 380)
+    }
+}
+
+/// Site escolhido na janela, para o menu Site da barra de menus.
+struct SelectedSiteKey: FocusedValueKey { typealias Value = Site.ID }
+
+extension FocusedValues {
+    var selectedSite: Site.ID? {
+        get { self[SelectedSiteKey.self] }
+        set { self[SelectedSiteKey.self] = newValue }
+    }
+}
+
+/// Menu "Site" da barra de menus: as ações do site escolhido, com os atalhos de teclado.
+struct SiteCommands: Commands {
+    @FocusedValue(\.selectedSite) private var siteID
+
+    var body: some Commands {
+        CommandMenu("Site") { SiteCommandItems(siteID: siteID) }
+    }
+}
+
+private struct SiteCommandItems: View {
+    let siteID: Site.ID?
+    @ObservedObject private var store = SiteStore.shared
+
+    var body: some View {
+        let site = store.sites.first { $0.id == siteID }
+        Group {
+            if let site, store.isRunning(site) {
+                Button("Parar") { store.stop(site) }.keyboardShortcut("r")
+            } else {
+                Button("Iniciar") { if let site { Task { await store.start(site) } } }.keyboardShortcut("r")
+            }
+            Button("Abrir site") { if let site { Prefs.openInBrowser(site.url) } }.keyboardShortcut("o")
+            Button("Abrir WP Admin") { if let site { Task { await store.openAdmin(site) } } }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+            Divider()
+            if let site {
+                ShareMenuItems(site: site).environmentObject(store)
+            } else {
+                Button("Partilhar por link") {}
+            }
+            Divider()
+            Button("Mostrar no Finder") { if let site { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) } }
+            Button("Abrir no editor") { if let site { Prefs.openInEditor(site.folder) } }
+                .disabled(Prefs.preferredEditor == nil)
+            Button("Abrir no Terminal") { if let site { Prefs.openInTerminal(site.folder) } }
+        }
+        .disabled(site == nil)
+        Divider()
+        Button("Ver emails") { Task { await store.openMail() } }.keyboardShortcut("e", modifiers: [.command, .shift])
+    }
+}
+
 // MARK: - Componentes
 
 private struct CardBackground: View {
@@ -638,67 +653,6 @@ private struct ErrorText: View {
     init(_ text: String) { self.text = text }
     var body: some View {
         Label { Text(text) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red) }
-    }
-}
-
-private struct Card<Content: View>: View {
-    let title: String
-    let symbol: String
-    var footnote: String?
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol).font(.headline).accessibilityAddTraits(.isHeader)
-            VStack(alignment: .leading, spacing: 0) { content }
-            if let footnote {
-                Text(footnote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CardBackground())
-    }
-}
-
-private struct InfoRow<Value: View>: View {
-    let label: String
-    @ViewBuilder let value: Value
-    init(_ label: String, @ViewBuilder value: () -> Value) { self.label = label; self.value = value() }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(label).foregroundStyle(.secondary)
-            Spacer(minLength: 12)
-            value
-        }
-        .padding(.vertical, 7)
-    }
-}
-
-private struct StatusPill: View {
-    let running: Bool
-    let busy: Bool
-    var body: some View {
-        let (text, color): (String, Color) = busy ? ("A iniciar…", .orange) : running ? ("A correr", .green) : ("Parado", .secondary)
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.caption.weight(.medium)) // cor normal: verde/laranja em texto pequeno não tem contraste
-        }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(color.opacity(0.14)))
-        .foregroundStyle(running || busy ? .primary : .secondary)
-    }
-}
-
-private struct Chip: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.caption)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(Capsule().fill(Color.secondary.opacity(0.12)))
-            .foregroundStyle(.secondary)
     }
 }
 
@@ -1452,29 +1406,17 @@ private struct SettingsPaneView: View {
     NSApp.activate(ignoringOtherApps: true)
 }
 
-/// Mostra as Definições na barra lateral (⌘, e barra de menus), abrindo a janela principal se estiver fechada.
-struct OpenSettingsButton: View {
+/// Item de menu que mostra algo na janela principal (Definições, Novo site, referência do cPanel), abrindo-a se preciso.
+struct MainWindowButton: View {
+    let title: String
+    let request: SiteStore.WindowRequest
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Definições…") {
-            SiteStore.shared.settingsRequested = true
+        Button(title) {
+            SiteStore.shared.windowRequest = request
             showMainWindow(openWindow)
         }
-        .keyboardShortcut(",")
-    }
-}
-
-/// "Novo site…" no menu Ficheiro (⌘N): os comandos ficam no menu, onde o teclado e o VoiceOver os encontram.
-struct NewSiteMenuButton: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Novo site…") {
-            SiteStore.shared.newSiteRequested = true
-            showMainWindow(openWindow)
-        }
-        .keyboardShortcut("n")
     }
 }
 

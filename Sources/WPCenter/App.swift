@@ -32,8 +32,10 @@ struct WPCenterApp: App {
         .defaultSize(width: 1040, height: 740)
         .windowToolbarStyle(.unified)
         .commands {
-            CommandGroup(replacing: .newItem) { NewSiteMenuButton() }
-            CommandGroup(replacing: .appSettings) { OpenSettingsButton() }
+            CommandGroup(replacing: .newItem) { MainWindowButton(title: "Novo site…", request: .newSite).keyboardShortcut("n") }
+            CommandGroup(replacing: .appSettings) { MainWindowButton(title: "Definições…", request: .settings).keyboardShortcut(",") }
+            SiteCommands()
+            CommandGroup(replacing: .help) { MainWindowButton(title: "Versões de bases de dados do cPanel", request: .cpanel) }
         }
 
         MenuBarExtra("WP Center", systemImage: "globe", isInserted: $showMenuBar) {
@@ -74,7 +76,7 @@ private struct MenuBarContent: View {
             openWindow(id: "main")
             NSApp.activate(ignoringOtherApps: true)
         }
-        OpenSettingsButton()
+        MainWindowButton(title: "Definições…", request: .settings).keyboardShortcut(",")
         Divider()
         Button("Sair do WP Center") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
