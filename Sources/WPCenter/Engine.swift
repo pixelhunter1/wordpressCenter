@@ -221,6 +221,8 @@ final class SiteStore: ObservableObject {
     @Published var errorMessage: String?
     /// Pedido de ⌘, ou da barra de menus para a janela principal mostrar as Definições.
     @Published var settingsRequested = false
+    /// Pedido do menu Ficheiro → Novo site… (⌘N) para a janela principal abrir a folha.
+    @Published var newSiteRequested = false
 
     let storage: URL
     private var file: URL { storage.appendingPathComponent("sites.json") }

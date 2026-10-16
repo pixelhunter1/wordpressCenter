@@ -32,7 +32,7 @@ struct WPCenterApp: App {
         .defaultSize(width: 1040, height: 740)
         .windowToolbarStyle(.unified)
         .commands {
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) { NewSiteMenuButton() }
             CommandGroup(replacing: .appSettings) { OpenSettingsButton() }
         }
 

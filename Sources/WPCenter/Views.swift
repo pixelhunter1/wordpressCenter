@@ -41,6 +41,7 @@ struct ContentView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Definições")
+                        .accessibilityAddTraits(.isHeader)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 18)
@@ -77,8 +78,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
-                    .keyboardShortcut("n")
-                    .help("Criar um novo site WordPress (⌘N)")
+                    .help("Criar um novo site WordPress (⌘N)") // o atalho vive no menu Ficheiro
             }
         }
         .sheet(isPresented: $showNewSite) {
@@ -108,8 +108,12 @@ struct ContentView: View {
         .onAppear {
             selection = selection ?? store.sites.first.map { .site($0.id) }
             showRequestedSettings()
+            if store.newSiteRequested { store.newSiteRequested = false; showNewSite = true } // janela aberta pelo ⌘N
         }
         .onChange(of: store.settingsRequested) { showRequestedSettings() }
+        .onChange(of: store.newSiteRequested) { _, requested in
+            if requested { store.newSiteRequested = false; showNewSite = true }
+        }
         // Sites iniciados/parados pelo `wpc` no terminal: refresca o estado de vez em quando.
         .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in store.objectWillChange.send() }
     }
@@ -132,10 +136,12 @@ private struct SiteRow: View {
         HStack(spacing: 10) {
             SiteIcon(size: 28)
                 .overlay(alignment: .bottomTrailing) {
+                    // Forma além da cor: cheio = a correr, anel = parado (distinguível sem ver cores).
                     Circle()
-                        .fill(running ? Color.green : Color.gray)
+                        .fill(running ? Color.green : Color(nsColor: .windowBackgroundColor))
+                        .overlay(Circle().strokeBorder(running ? Color(nsColor: .windowBackgroundColor) : Color.gray,
+                                                       lineWidth: running ? 1.5 : 2))
                         .frame(width: 9, height: 9)
-                        .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
                         .offset(x: 2, y: 2)
                 }
             VStack(alignment: .leading, spacing: 2) {
@@ -284,6 +290,9 @@ struct SiteDetailView: View {
         .task(id: running) {
             if running { credentialsValid = await store.credentialsAreValid(site) }
         }
+        .onChange(of: store.shares[site.id]?.url) { _, url in
+            if url != nil { announce("Link de partilha pronto e copiado") }
+        }
         .confirmationDialog("Gerar uma nova palavra-passe para \(site.adminUser)?", isPresented: $confirmReset) {
             Button("Gerar nova palavra-passe") { resetAccess() }
         } message: {
@@ -315,10 +324,11 @@ struct SiteDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
                     Text(site.name).font(.title2.weight(.semibold)).lineLimit(1)
-                    Button(action: onRename) { Image(systemName: "pencil") }
+                    Button(action: onRename) { Image(systemName: "pencil").iconHitTarget() }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
                         .help("Mudar o nome do site")
+                        .accessibilityLabel("Mudar o nome do site")
                     StatusPill(running: running, busy: starting)
                 }
                 Link(site.url.absoluteString, destination: site.url)
@@ -376,9 +386,9 @@ struct SiteDetailView: View {
     private var accessCard: some View {
         Card(title: "Acesso ao WordPress", symbol: "person.badge.key",
              footnote: "WP Admin entra já com sessão iniciada, com um código de uso único válido 60 segundos e só neste Mac.") {
-            InfoRow("Utilizador") { CopyableText(site.adminUser) }
+            InfoRow("Utilizador") { CopyableText(site.adminUser, what: "utilizador do WordPress") }
             Divider()
-            InfoRow("Palavra-passe") { SecretText(value: site.adminPassword) }
+            InfoRow("Palavra-passe") { SecretText(value: site.adminPassword, what: "palavra-passe do WordPress") }
             if credentialsValid == false {
                 Banner(text: "Estas credenciais já não funcionam neste site (foi restaurado com o WPvivid?).")
                     .padding(.top, 10)
@@ -403,13 +413,13 @@ struct SiteDetailView: View {
             if db.engine.needsServer {
                 InfoRow("Onde") { Text(db.managed ? "Neste Mac (gerida pela app)" : "Servidor existente") }
                 Divider()
-                InfoRow("Nome") { CopyableText(db.name) }
+                InfoRow("Nome") { CopyableText(db.name, what: "nome da base de dados") }
                 Divider()
-                InfoRow("Utilizador") { CopyableText(db.user) }
+                InfoRow("Utilizador") { CopyableText(db.user, what: "utilizador da base de dados") }
                 Divider()
-                InfoRow("Palavra-passe") { SecretText(value: db.password) }
+                InfoRow("Palavra-passe") { SecretText(value: db.password, what: "palavra-passe da base de dados") }
                 Divider()
-                InfoRow("Servidor") { CopyableText("\(db.host):\(String(db.port))") }
+                InfoRow("Servidor") { CopyableText("\(db.host):\(String(db.port))", what: "endereço do servidor") }
             } else {
                 InfoRow("Ficheiro") { Text("wp-content/database/.ht.sqlite").foregroundStyle(.secondary) }
             }
@@ -421,7 +431,7 @@ struct SiteDetailView: View {
         return Card(title: "Partilhar com o cliente", symbol: "link",
                     footnote: share == nil
                         ? "Cria um link público temporário (Cloudflare), sem conta. Funciona só enquanto estiver aberto."
-                        : "Qualquer pessoa com o link vê o site. O link termina ao carregar em Terminar, ao parar o site ou ao sair do WP Center.") {
+                        : nil) {
             if let share, let url = share.url {
                 HStack(spacing: 10) {
                     Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.green)
@@ -437,8 +447,6 @@ struct SiteDetailView: View {
                     Button(role: .destructive) { store.stopSharing(site) } label: { Label("Terminar", systemImage: "xmark.circle") }
                         .help("Fechar o link: deixa de funcionar de imediato")
                 }
-                Text("Link copiado. Cole-o numa mensagem para o cliente.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 6)
             } else if share != nil {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -478,9 +486,10 @@ struct SiteDetailView: View {
                         Text("A criar o backup…").foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button { showExclusions.toggle() } label: { Image(systemName: "info.circle") }
+                    Button { showExclusions.toggle() } label: { Image(systemName: "info.circle").iconHitTarget() }
                         .buttonStyle(.borderless)
                         .help("O que fica de fora")
+                        .accessibilityLabel("O que fica de fora da exportação")
                         .popover(isPresented: $showExclusions, arrowEdge: .bottom) { exclusions }
                 }
                 .padding(.top, 10)
@@ -542,8 +551,8 @@ struct SiteDetailView: View {
             InfoRow("Pasta") {
                 HStack(spacing: 6) {
                     Text(site.path).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) } label: { Image(systemName: "folder") }
-                        .buttonStyle(.borderless).help("Mostrar no Finder")
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) } label: { Image(systemName: "folder").iconHitTarget() }
+                        .buttonStyle(.borderless).help("Mostrar no Finder").accessibilityLabel("Mostrar a pasta no Finder")
                 }
             }
             Divider()
@@ -577,10 +586,13 @@ struct SiteDetailView: View {
         Task {
             do {
                 exportResult = try await store.exportForCPanel(site, collations: collations, to: directory)
+                announce("Exportação concluída")
             } catch let error as SiteStore.IncompatibleCollationError {
                 collationTables = error.tables
+                announce("Há tabelas com uma colação que o cPanel recusa")
             } catch {
                 exportError = error.localizedDescription
+                announce("A exportação falhou: \(error.localizedDescription)")
             }
             exporting = false
         }
@@ -610,6 +622,25 @@ private struct CardBackground: View {
     }
 }
 
+/// Alvo de clique de 22×22 pt para botões só com ícone (os símbolos ficam com ~10 pt, difíceis de acertar).
+extension View {
+    func iconHitTarget() -> some View { frame(minWidth: 22, minHeight: 22).contentShape(Rectangle()) }
+}
+
+/// Lido pelo VoiceOver quando algo muda sem mudar o foco (copiar, link pronto, exportação).
+@MainActor func announce(_ text: String) {
+    AccessibilityNotification.Announcement(text).post()
+}
+
+/// Erro com o ícone a vermelho e o texto em cor normal: vermelho sobre fundo claro não tem contraste suficiente.
+private struct ErrorText: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Label { Text(text) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red) }
+    }
+}
+
 private struct Card<Content: View>: View {
     let title: String
     let symbol: String
@@ -618,7 +649,7 @@ private struct Card<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol).font(.headline)
+            Label(title, systemImage: symbol).font(.headline).accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 0) { content }
             if let footnote {
                 Text(footnote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -652,11 +683,11 @@ private struct StatusPill: View {
         let (text, color): (String, Color) = busy ? ("A iniciar…", .orange) : running ? ("A correr", .green) : ("Parado", .secondary)
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.caption.weight(.medium))
+            Text(text).font(.caption.weight(.medium)) // cor normal: verde/laranja em texto pequeno não tem contraste
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().fill(color.opacity(0.14)))
-        .foregroundStyle(running || busy ? color : .secondary)
+        .foregroundStyle(running || busy ? .primary : .secondary)
     }
 }
 
@@ -674,9 +705,8 @@ private struct Chip: View {
 private struct Banner: View {
     let text: String
     var body: some View {
-        Label(text, systemImage: "exclamationmark.triangle.fill")
+        Label { Text(text) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
             .font(.callout)
-            .foregroundStyle(.orange)
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
@@ -684,8 +714,10 @@ private struct Banner: View {
     }
 }
 
+/// `what`: o que é, em minúsculas ("palavra-passe do WordPress"), para os botões dizerem o que copiam/mostram.
 private struct SecretText: View {
     let value: String
+    let what: String
     @State private var revealed = false
     var body: some View {
         HStack(spacing: 6) {
@@ -693,36 +725,42 @@ private struct SecretText: View {
                 .font(.body.monospaced())
                 .textSelection(.enabled)
                 .lineLimit(1)
-            Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye") }
+                .accessibilityLabel(revealed ? value : "Oculta") // senão o VoiceOver lê 12 vezes "ponto"
+            Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye").iconHitTarget() }
                 .buttonStyle(.borderless)
                 .help(revealed ? "Ocultar" : "Mostrar")
-            CopyButton(value: value)
+                .accessibilityLabel("\(revealed ? "Ocultar" : "Mostrar") \(what)")
+            CopyButton(value: value, what: what)
         }
     }
 }
 
 private struct CopyableText: View {
     let value: String
-    init(_ value: String) { self.value = value }
+    let what: String
+    init(_ value: String, what: String) { self.value = value; self.what = what }
     var body: some View {
-        HStack(spacing: 6) { Text(value).textSelection(.enabled); CopyButton(value: value) }
+        HStack(spacing: 6) { Text(value).textSelection(.enabled); CopyButton(value: value, what: what) }
     }
 }
 
 private struct CopyButton: View {
     let value: String
+    let what: String
     @State private var copied = false
     var body: some View {
         Button {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(value, forType: .string)
             copied = true
+            announce("Copiado")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+            Image(systemName: copied ? "checkmark" : "doc.on.doc").iconHitTarget()
         }
         .buttonStyle(.borderless)
         .help("Copiar")
+        .accessibilityLabel("Copiar \(what)")
     }
 }
 
@@ -743,7 +781,7 @@ struct RenameSiteView: View {
             HStack(spacing: 12) {
                 SiteIcon(size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mudar o nome do site").font(.title3.weight(.semibold))
+                    Text("Mudar o nome do site").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
                     Text(site.name).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -755,7 +793,7 @@ struct RenameSiteView: View {
             Text("A pasta do site (\(site.folder.lastPathComponent)) não muda.")
                 .font(.caption).foregroundStyle(.secondary)
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout)
+                ErrorText(error).font(.callout)
             }
             HStack {
                 Spacer()
@@ -843,7 +881,7 @@ struct NewSiteView: View {
         HStack(spacing: 14) {
             SiteIcon(size: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Novo site WordPress").font(.title2.weight(.semibold))
+                Text("Novo site WordPress").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 Text("WordPress \(Runtime.bundledWordPressVersion) · PHP \(Runtime.phpVersion), no seu Mac e sem serviços externos.")
                     .foregroundStyle(.secondary)
             }
@@ -855,7 +893,7 @@ struct NewSiteView: View {
     private var siteCard: some View {
         FormCard(title: "Site", symbol: "globe") {
             FormRow("Nome") {
-                TextField("O meu site", text: $name).textFieldStyle(.roundedBorder)
+                TextField("O meu site", text: $name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome do site")
             }
             FormRow("Guardar em") {
                 HStack {
@@ -872,14 +910,15 @@ struct NewSiteView: View {
         FormCard(title: "Acesso ao WordPress", symbol: "person.badge.key",
                  footnote: "Para entrar no painel. O botão WP Admin da app entra sem a escrever.") {
             FormRow("Utilizador") {
-                TextField("utilizador", text: $user).textFieldStyle(.roundedBorder)
+                TextField("utilizador", text: $user).textFieldStyle(.roundedBorder).accessibilityLabel("Utilizador do WordPress")
             }
             FormRow("Palavra-passe") {
                 HStack(spacing: 6) {
                     TextField("", text: $password).textFieldStyle(.roundedBorder).font(.body.monospaced())
-                    Button { password = SiteStore.strongPassword(length: 20) } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless).help("Gerar outra palavra-passe")
-                    CopyButton(value: password)
+                        .accessibilityLabel("Palavra-passe do WordPress")
+                    Button { password = SiteStore.strongPassword(length: 20) } label: { Image(systemName: "arrow.clockwise").iconHitTarget() }
+                        .buttonStyle(.borderless).help("Gerar outra palavra-passe").accessibilityLabel("Gerar outra palavra-passe")
+                    CopyButton(value: password, what: "palavra-passe")
                 }
             }
         }
@@ -930,23 +969,26 @@ struct NewSiteView: View {
         VStack(alignment: .leading, spacing: 8) {
             FormRow("Servidor") {
                 HStack {
-                    TextField("127.0.0.1", text: $db.host).textFieldStyle(.roundedBorder)
+                    TextField("127.0.0.1", text: $db.host).textFieldStyle(.roundedBorder).accessibilityLabel("Servidor da base de dados")
                     TextField("Porta", value: $db.port, format: .number.grouping(.never))
-                        .textFieldStyle(.roundedBorder).frame(width: 70)
+                        .textFieldStyle(.roundedBorder).frame(width: 70).accessibilityLabel("Porta")
                 }
             }
             FormRow("Base de dados") {
-                TextField("gerada ao acaso se ficar vazia", text: $db.name).textFieldStyle(.roundedBorder)
+                TextField("gerada ao acaso se ficar vazia", text: $db.name).textFieldStyle(.roundedBorder).accessibilityLabel("Nome da base de dados")
             }
-            FormRow("Utilizador") { TextField("", text: $db.user).textFieldStyle(.roundedBorder) }
-            FormRow("Palavra-passe") { SecureField("", text: $db.password).textFieldStyle(.roundedBorder) }
+            FormRow("Utilizador") { TextField("", text: $db.user).textFieldStyle(.roundedBorder).accessibilityLabel("Utilizador da base de dados") }
+            FormRow("Palavra-passe") { SecureField("", text: $db.password).textFieldStyle(.roundedBorder).accessibilityLabel("Palavra-passe da base de dados") }
             FormRow("") {
                 HStack(spacing: 8) {
                     Button("Testar ligação", action: testConnection).disabled(testing)
                     if testing { ProgressView().controlSize(.small) }
                     if let test {
-                        Label(test.text, systemImage: test.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(test.ok ? .green : .orange).font(.callout)
+                        Label { Text(test.text) } icon: {
+                            Image(systemName: test.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(test.ok ? .green : .orange)
+                        }
+                        .font(.callout)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -957,10 +999,11 @@ struct NewSiteView: View {
     @ViewBuilder private var serverStatus: some View {
         FormRow("Neste Mac") {
             if !server.isSupportedOnMac {
-                Label("\(server.title) não existe para Mac — escolha outra versão", systemImage: "xmark.octagon.fill")
-                    .foregroundStyle(.orange)
+                Label { Text("\(server.title) não existe para Mac — escolha outra versão") } icon: {
+                    Image(systemName: "xmark.octagon.fill").foregroundStyle(.orange)
+                }
             } else if server.isInstalled {
-                Label("\(server.title) instalado", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label { Text("\(server.title) instalado") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
             } else {
                 HStack {
                     Label("\(server.title) por instalar", systemImage: "arrow.down.circle").foregroundStyle(.secondary)
@@ -979,8 +1022,7 @@ struct NewSiteView: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red).font(.callout).lineLimit(3)
+                ErrorText(error).font(.callout).lineLimit(3)
             }
             Spacer()
             Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction).disabled(creating)
@@ -1062,7 +1104,7 @@ private struct FormCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: symbol).font(.headline)
+            Label(title, systemImage: symbol).font(.headline).accessibilityAddTraits(.isHeader)
             content
             if let footnote {
                 Text(footnote).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1196,8 +1238,6 @@ struct CPanelView: View {
                         VStack(spacing: 1) {
                             Text(column.engine.title).font(.caption2).foregroundStyle(.secondary)
                             Text(column.version).font(.caption.weight(.semibold))
-                                .foregroundStyle(column.version == DatabaseEngine.mariadb.defaultVersion && column.engine == .mariadb
-                                                 ? Color.green : Color.primary)
                         }
                     }
                     VStack(spacing: 1) {
@@ -1211,9 +1251,10 @@ struct CPanelView: View {
                     GridRow {
                         Text(row.os).frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(columns, id: \.version) { column in
-                            mark((column.engine == .mysql ? row.mysql : row.mariadb).contains(column.version))
+                            mark((column.engine == .mysql ? row.mysql : row.mariadb).contains(column.version),
+                                 "\(column.engine.title) \(column.version) em \(row.os)")
                         }
-                        mark(row.postgresql != "Não suportado")
+                        mark(row.postgresql != "Não suportado", "PostgreSQL em \(row.os)")
                     }
                     .padding(.vertical, 7)
                     if row.id != CPanelSupportRow.all.last?.id {
@@ -1222,9 +1263,9 @@ struct CPanelView: View {
                 }
             }
             HStack(spacing: 16) {
-                Label("Disponível", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                Label("Não disponível", systemImage: "minus").foregroundStyle(.tertiary)
-                Label("Versão por omissão", systemImage: "circle.fill").foregroundStyle(.green)
+                Label { Text("Disponível") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                Label { Text("Não disponível") } icon: { Image(systemName: "minus").foregroundStyle(.tertiary) }
+                Label { Text("Versão por omissão") } icon: { Image(systemName: "circle.fill").foregroundStyle(.green) }
             }
             .font(.caption)
         }
@@ -1232,11 +1273,12 @@ struct CPanelView: View {
         .background(CardBackground())
     }
 
-    private func mark(_ available: Bool) -> some View {
+    /// `context` diz ao VoiceOver a linha e a coluna ("MariaDB 10.11 em AlmaLinux 9"), que a grelha não transmite.
+    private func mark(_ available: Bool, _ context: String) -> some View {
         Image(systemName: available ? "checkmark.circle.fill" : "minus")
             .foregroundStyle(available ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
             .frame(minWidth: 52)
-            .accessibilityLabel(available ? "Disponível" : "Não disponível")
+            .accessibilityLabel("\(context): \(available ? "disponível" : "não disponível")")
     }
 
     private var notes: some View {
@@ -1272,7 +1314,6 @@ private struct EngineSummary: View {
                     Text(badge).font(.caption2.weight(.semibold))
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(Capsule().fill(badgeColor.opacity(0.15)))
-                        .foregroundStyle(badgeColor)
                 }
             }
             if engine.cpanelVersions.isEmpty {
@@ -1287,7 +1328,7 @@ private struct EngineSummary: View {
                             .padding(.horizontal, 7).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 6)
                                 .fill(isDefault ? Color.green.opacity(0.15) : Color.secondary.opacity(0.1)))
-                            .foregroundStyle(isDefault ? Color.green : Color.primary)
+                            .accessibilityLabel(isDefault ? "\(version), versão por omissão" : version)
                     }
                 }
             }
@@ -1351,6 +1392,7 @@ private struct SettingsIcon: View {
             .foregroundStyle(.white)
             .frame(width: 20, height: 20)
             .background(pane.color.gradient, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 
@@ -1400,6 +1442,16 @@ private struct SettingsPaneView: View {
     }
 }
 
+/// Traz a janela principal para a frente, abrindo-a se estiver fechada.
+@MainActor private func showMainWindow(_ openWindow: OpenWindowAction) {
+    if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+        window.makeKeyAndOrderFront(nil)
+    } else {
+        openWindow(id: "main")
+    }
+    NSApp.activate(ignoringOtherApps: true)
+}
+
 /// Mostra as Definições na barra lateral (⌘, e barra de menus), abrindo a janela principal se estiver fechada.
 struct OpenSettingsButton: View {
     @Environment(\.openWindow) private var openWindow
@@ -1407,14 +1459,22 @@ struct OpenSettingsButton: View {
     var body: some View {
         Button("Definições…") {
             SiteStore.shared.settingsRequested = true
-            if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
-                window.makeKeyAndOrderFront(nil)
-            } else {
-                openWindow(id: "main")
-            }
-            NSApp.activate(ignoringOtherApps: true)
+            showMainWindow(openWindow)
         }
         .keyboardShortcut(",")
+    }
+}
+
+/// "Novo site…" no menu Ficheiro (⌘N): os comandos ficam no menu, onde o teclado e o VoiceOver os encontram.
+struct NewSiteMenuButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Novo site…") {
+            SiteStore.shared.newSiteRequested = true
+            showMainWindow(openWindow)
+        }
+        .keyboardShortcut("n")
     }
 }
 
@@ -1472,7 +1532,7 @@ private struct GeneralSettings: View {
                 Text("Arranque")
             } footer: {
                 if let loginError {
-                    Text(loginError).foregroundStyle(.red)
+                    ErrorText(loginError)
                 } else if needsApproval {
                     HStack {
                         Text("O macOS pede autorização em Itens de início de sessão.")
@@ -1626,8 +1686,11 @@ private struct AdvancedSettings: View {
                         cliInstalled = CLI.isInstalled
                     }))
             } footer: {
-                Text(cliError ?? "wpc wp …, wpc start, wpc status, wpc admin e wpc export no terminal e para agentes de IA. Abra um novo terminal depois de ativar.")
-                    .foregroundStyle(cliError == nil ? Color.secondary : Color.red)
+                if let cliError {
+                    ErrorText(cliError)
+                } else {
+                    Text("wpc wp …, wpc start, wpc status, wpc admin e wpc export no terminal e para agentes de IA. Abra um novo terminal depois de ativar.")
+                }
             }
             Section("Incluído na app") {
                 LabeledContent("WordPress", value: Runtime.bundledWordPressVersion)
