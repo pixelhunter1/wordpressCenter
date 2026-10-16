@@ -37,7 +37,7 @@ Cada servidor usa MySQL ou MariaDB, nunca os dois. Sem personalização o cPanel
 
 ## Preparar e exportar para o cPanel
 
-1. Atualizações: faz-as à mão e testa antes de exportar (`wpc wp core update`, `wpc wp plugin update --all`, `wpc wp theme update --all`).
+1. Atualizações: o `wp-config.php` local desliga as automáticas (`AUTOMATIC_UPDATER_DISABLED`), por isso faz-as à mão e testa antes de exportar (`wpc wp core update`, `wpc wp plugin update --all`, `wpc wp theme update --all`).
 2. O plugin WPvivid tem de estar instalado e ativo no site: `wpc wp plugin install wpvivid-backuprestore --activate`. Convém ter a mesma versão que no cPanel.
 3. Exporta com `wpc export` (ou o botão Exportar da app). O backup vai para as Descargas, ou para a pasta escolhida nas Definições.
 4. Colações: o MySQL 8 cria tabelas `utf8mb4_0900_*`, que o MariaDB do cPanel recusa. Se o `wpc export` parar por isso:
