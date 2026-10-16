@@ -73,6 +73,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
+                    .foregroundStyle(.tint) // a ação principal da app: "+" azul, no mesmo grupo dos outros botões
                     .help("Criar um novo site WordPress (⌘N)") // o atalho vive no menu Ficheiro
             }
         }
