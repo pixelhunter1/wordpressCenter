@@ -2,14 +2,15 @@ import AppKit
 import Foundation
 import Security
 
-/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades).
-/// O build.sh copia-as do Studio e de Runtime/skills (as do WordPress/agent-skills que o Studio não traz).
+/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio
+/// e de Runtime/skills: a wp-center (nossa) e as do WordPress/agent-skills que o Studio não traz.
 struct AgentSkill: Identifiable {
     let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
     let title: String
     let summary: String
 
     static let all = [
+        AgentSkill(id: "wp-center", title: "WP Center e cPanel", summary: "wpc, emails no Mailpit, colações e exportação para o cPanel"),
         AgentSkill(id: "wordpress-router", title: "Encaminhamento WordPress", summary: "Classifica o projeto e escolhe a habilidade certa"),
         AgentSkill(id: "wp-project-triage", title: "Diagnóstico do projeto", summary: "Relatório do tipo de projeto, ferramentas e testes"),
         AgentSkill(id: "wp-plugin-development", title: "Desenvolvimento de plugins", summary: "Hooks, Settings API, segurança e empacotamento"),

@@ -171,6 +171,9 @@ enum SelfTest {
                 check(incompatible.isEmpty, "sem colações exclusivas do MySQL 8")
             }
             check(FileManager.default.fileExists(atPath: site.path + "/WPCENTER.md"), "ficheiros para agentes criados")
+            check(FileManager.default.fileExists(atPath: site.path + "/.claude/skills/wp-center/SKILL.md")
+                  && FileManager.default.fileExists(atPath: site.path + "/.agents/skills/wp-center/SKILL.md"),
+                  "habilidade wp-center copiada para o site novo")
             store.syncSkills(for: site, enabled: Set(AgentSkill.all.map(\.id)).subtracting(["rank-me-up"]))
             let skillExists = { (path: String) in FileManager.default.fileExists(atPath: site.path + path) }
             check(skillExists("/.claude/skills/wp-rest-api/SKILL.md") && skillExists("/.agents/skills/wp-rest-api/SKILL.md")
