@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var showNewSite = false
     @State private var showCPanel = false
     @State private var siteToDelete: Site?
+    @State private var siteToRename: Site?
 
     private var filteredSites: [Site] {
         search.isEmpty ? store.sites : store.sites.filter { $0.name.localizedCaseInsensitiveContains(search) }
@@ -22,7 +23,7 @@ struct ContentView: View {
                     ForEach(filteredSites) { site in
                         SiteRow(site: site, running: store.isRunning(site))
                             .tag(site.id)
-                            .contextMenu { SiteMenu(site: site) { siteToDelete = site } }
+                            .contextMenu { SiteMenu(site: site, onRename: { siteToRename = site }) { siteToDelete = site } }
                     }
                 }
             }
@@ -38,7 +39,7 @@ struct ContentView: View {
             }
         } detail: {
             if let site = store.sites.first(where: { $0.id == selection }) {
-                SiteDetailView(site: site) { siteToDelete = site }.id(site.id)
+                SiteDetailView(site: site, onRename: { siteToRename = site }) { siteToDelete = site }.id(site.id)
             } else {
                 ContentUnavailableView {
                     Label(store.sites.isEmpty ? "Ainda não há sites" : "Selecione um site", systemImage: "globe")
@@ -60,6 +61,7 @@ struct ContentView: View {
             NewSiteView { selection = $0.id }
         }
         .sheet(isPresented: $showCPanel) { CPanelView() }
+        .sheet(item: $siteToRename) { RenameSiteView(site: $0) }
         .confirmationDialog("Apagar \"\(siteToDelete?.name ?? "")\"?", isPresented: Binding(
             get: { siteToDelete != nil }, set: { if !$0 { siteToDelete = nil } }
         ), presenting: siteToDelete) { site in
@@ -115,6 +117,7 @@ private struct SiteRow: View {
 private struct SiteMenu: View {
     @EnvironmentObject var store: SiteStore
     let site: Site
+    let onRename: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -136,18 +139,31 @@ private struct SiteMenu: View {
             NSPasteboard.general.setString(site.url.absoluteString, forType: .string)
         }
         Divider()
+        Button("Mudar nome…", action: onRename)
         Button("Apagar site…", role: .destructive, action: onDelete)
     }
 }
 
+/// O logo da app em miniatura, igual ao ícone do Dock: fundo branco arredondado com o símbolo.
 private struct SiteIcon: View {
     var size: CGFloat
+    static let logo = Runtime.appBundle.url(forResource: "logo", withExtension: "svg").flatMap(NSImage.init(contentsOf:))
+
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 0.13, green: 0.47, blue: 0.80), Color(red: 0.07, green: 0.20, blue: 0.42)],
-                                 startPoint: .top, endPoint: .bottom))
+        let shape = RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+        shape.fill(.white)
+            .overlay {
+                if let logo = Self.logo {
+                    // O símbolo ocupa ~47% do SVG: a 129% do tamanho fica com ~60%, como no ícone da app.
+                    Image(nsImage: logo).resizable().interpolation(.high).frame(width: size * 1.29, height: size * 1.29)
+                } else {
+                    Image(systemName: "globe").font(.system(size: size * 0.5, weight: .medium)).foregroundStyle(.tint)
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.12), radius: size * 0.04, y: size * 0.02)
             .frame(width: size, height: size)
-            .overlay(Image(systemName: "globe").font(.system(size: size * 0.5, weight: .medium)).foregroundStyle(.white))
             .accessibilityHidden(true)
     }
 }
@@ -157,6 +173,7 @@ private struct SiteIcon: View {
 struct SiteDetailView: View {
     @EnvironmentObject var store: SiteStore
     let site: Site
+    let onRename: () -> Void
     let onDelete: () -> Void
 
     @State private var starting = false
@@ -194,7 +211,7 @@ struct SiteDetailView: View {
         .toolbar {
             ToolbarItem {
                 Menu {
-                    SiteMenu(site: site, onDelete: onDelete)
+                    SiteMenu(site: site, onRename: onRename, onDelete: onDelete)
                 } label: {
                     Label("Mais", systemImage: "ellipsis.circle")
                 }
@@ -235,6 +252,10 @@ struct SiteDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
                     Text(site.name).font(.title2.weight(.semibold)).lineLimit(1)
+                    Button(action: onRename) { Image(systemName: "pencil") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Mudar o nome do site")
                     StatusPill(running: running, busy: starting)
                 }
                 Link(site.url.absoluteString, destination: site.url)
@@ -551,6 +572,70 @@ private struct CopyButton: View {
         }
         .buttonStyle(.borderless)
         .help("Copiar")
+    }
+}
+
+// MARK: - Mudar nome
+
+struct RenameSiteView: View {
+    @EnvironmentObject var store: SiteStore
+    @Environment(\.dismiss) private var dismiss
+    let site: Site
+
+    @State private var name = ""
+    @State private var updateWordPress = true
+    @State private var saving = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                SiteIcon(size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Mudar o nome do site").font(.title3.weight(.semibold))
+                    Text(site.name).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            TextField("Nome do site", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .onSubmit(save)
+            Toggle("Usar também como título do site no WordPress", isOn: $updateWordPress)
+            Text("A pasta do site (\(site.folder.lastPathComponent)) não muda.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout)
+            }
+            HStack {
+                Spacer()
+                Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(action: save) {
+                    if saving { ProgressView().controlSize(.small).padding(.horizontal, 12) } else { Text("Guardar") }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty || name == site.name)
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(width: 440)
+        .onAppear { name = site.name }
+    }
+
+    private func save() {
+        guard !saving, name != site.name else { return }
+        saving = true
+        error = nil
+        Task {
+            do {
+                try await store.rename(site, to: name, updateWordPress: updateWordPress)
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            saving = false
+        }
     }
 }
 

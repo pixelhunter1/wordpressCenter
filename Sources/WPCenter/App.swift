@@ -148,6 +148,11 @@ enum SelfTest {
             check(updated.adminPassword != site.adminPassword && validAfter == true,
                   "repor acesso gera e guarda uma palavra-passe nova")
 
+            try await store.rename(updated, to: "Renomeado Ção", updateWordPress: true)
+            let title = try await Runtime.php([Runtime.wpCli.path, "option", "get", "blogname"], cwd: site.folder)
+            check(store.sites.first { $0.id == site.id }?.name == "Renomeado Ção" && title == "Renomeado Ção",
+                  "mudar nome atualiza a app e o título no WordPress")
+
             // Parar a partir de "outro processo" (como `wpc stop` com o site iniciado pela app, ou vice-versa).
             let other = SiteStore(storage: store.storage)
             check(other.isRunning(site), "outro processo vê o site a correr")

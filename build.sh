@@ -40,6 +40,7 @@ for s in 16 32 128 256 512; do
 done
 rm "$ICONSET/base.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+cp Assets/logo.svg "$APP/Contents/Resources/logo.svg" # logo usado dentro da app
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

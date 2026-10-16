@@ -591,6 +591,20 @@ final class SiteStore: ObservableObject {
     }
 
     /// Nova palavra-passe para o administrador (o guardado, ou o primeiro do site depois de um restauro).
+    /// Muda o nome mostrado na app e, opcionalmente, o título do site no WordPress (opção `blogname`).
+    /// A pasta mantém-se: mudá-la partiria caminhos guardados e a ligação à base de dados.
+    func rename(_ site: Site, to newName: String, updateWordPress: Bool) async throws {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw AppError("Indique um nome.") }
+        if updateWordPress {
+            if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
+            try await Runtime.php([Runtime.wpCli.path, "option", "update", "blogname", name], cwd: site.folder)
+        }
+        guard let index = sites.firstIndex(where: { $0.id == site.id }) else { return }
+        sites[index].name = name
+        try save()
+    }
+
     func resetAccess(_ site: Site) async throws {
         let password = Self.strongPassword()
         let result = try await access(site, "reset", ["WPCENTER_PASS": password])
