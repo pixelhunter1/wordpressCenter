@@ -32,7 +32,10 @@ struct WPCenterApp: App {
         .defaultSize(width: 1040, height: 740)
         .windowToolbarStyle(.unified)
         .commands {
-            CommandGroup(replacing: .newItem) { MainWindowButton(title: "Novo site…", request: .newSite).keyboardShortcut("n") }
+            CommandGroup(replacing: .newItem) {
+                MainWindowButton(title: "Novo site…", request: .newSite).keyboardShortcut("n")
+                MainWindowButton(title: "Importar site…", request: .importSites)
+            }
             CommandGroup(replacing: .appSettings) { MainWindowButton(title: "Definições…", request: .settings).keyboardShortcut(",") }
             SiteCommands()
             CommandGroup(replacing: .help) { MainWindowButton(title: "Versões de bases de dados do cPanel", request: .cpanel) }
@@ -132,6 +135,16 @@ enum SelfTest {
               "wp-config escapa palavras-passe")
         check(SiteStore.wpConfig(for: DatabaseConfig(engine: .sqlite)).contains("define( 'AUTOMATIC_UPDATER_DISABLED', true );"),
               "wp-config desliga as atualizações automáticas")
+        // Importação: só as constantes da ligação mudam no wp-config do Local; o resto fica.
+        let localConfig = "<?php\ndefine( 'DB_NAME', 'local' );\ndefine('DB_HOST','localhost');\n$table_prefix = 'xy_';\n"
+        let imported = SiteStore.addingLocalDefaults(to: SiteStore.settingDatabase(
+            DatabaseConfig(engine: .mysql, host: "127.0.0.1", port: 3321, name: "wpc_a", user: "wpc_b", password: "p'1"), in: localConfig))
+        check(imported.contains("define( 'DB_NAME', 'wpc_a' )") && imported.contains("define( 'DB_HOST', '127.0.0.1:3321' )")
+              && imported.contains("$table_prefix = 'xy_'") && imported.contains("define( 'AUTOMATIC_UPDATER_DISABLED', true );")
+              && imported.contains("define( 'WP_ENVIRONMENT_TYPE', 'local' );") && !imported.contains("'local' );\ndefine('DB_HOST'"),
+              "importação ajusta o wp-config e mantém o resto")
+        check(SiteStore.phpVersion("8.2.27") == "8.2" && SiteStore.phpVersion("7.4.1") == PHPVersions.bundled,
+              "versão de PHP do site de origem")
 
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-selftest-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) } // só a pasta temporária criada aqui
@@ -156,6 +169,7 @@ enum SelfTest {
             }
         }
         for config in configs { await siteRoundTrip(store, in: tmp, config, check) }
+        await importRoundTrip(store, in: tmp, check)
         // Outras versões de PHP já instaladas com o Homebrew: um site SQLite com cada uma.
         for php in PHPVersions.all where php != PHPVersions.bundled && PHPVersions.isInstalled(php) {
             await siteRoundTrip(store, in: tmp, DatabaseConfig(engine: .sqlite, targetVersion: ""), php: php, check)
@@ -266,6 +280,64 @@ enum SelfTest {
         } catch {
             check(false, "criar site: \(error.localizedDescription)")
         }
+    }
+
+    /// Um export no formato do Studio (wp-content, wp-config.php, sql/, meta.json), feito a partir de um site MySQL/MariaDB:
+    /// importado, tem o endereço novo (também escapado e em https), responde e entra no wp-admin.
+    private static func importRoundTrip(_ store: SiteStore, in tmp: URL, _ check: (Bool, String) -> Void) async {
+        print("— Importação de ficheiro (formato Studio)")
+        guard let config = configsForImport(store).first else { print("— sem MariaDB/MySQL livre, ignorado"); return }
+        do {
+            let original = try await store.create(name: "Selftest Origem", in: tmp, adminUser: "origem", adminPassword: "Origem-pw1",
+                                                  database: config)
+            // JSON dentro de JSON (Breakdance), https, e uma porta que só começa igual e não pode ser trocada.
+            let esc = "\\\\\\/", oldHost = "localhost:\(original.port)"
+            let mixed = { (host: String) in "a http:\(esc)\(esc)\(host)/x b https://\(host) c http://\(oldHost)0" }
+            try await Runtime.php([Runtime.wpCli.path, "option", "update", "wpc_teste", mixed(oldHost)], cwd: original.folder)
+
+            let export = tmp.appendingPathComponent("export")
+            try FileManager.default.createDirectory(at: export.appendingPathComponent("sql"), withIntermediateDirectories: true)
+            let server = LocalServer(original.database)
+            let dump = ["mysqldump", "mariadb-dump"].compactMap { server.prefix?.appendingPathComponent("bin/\($0)") }
+                .first { FileManager.default.isExecutableFile(atPath: $0.path) }!
+            _ = try await Runtime.exec(dump, ["--no-defaults", "--socket=\(server.socket)", "-uroot",
+                                              "--result-file=\(export.path)/sql/export.sql", original.database.name])
+            try FileManager.default.copyItem(at: original.folder.appendingPathComponent("wp-content"), to: export.appendingPathComponent("wp-content"))
+            try FileManager.default.copyItem(at: original.folder.appendingPathComponent("wp-config.php"), to: export.appendingPathComponent("wp-config.php"))
+            try #"{"siteUrl":"x","phpVersion":"8.4"}"#.write(to: export.appendingPathComponent("meta.json"), atomically: true, encoding: .utf8)
+            let zip = tmp.appendingPathComponent("Selftest Importado-2026-10-16-23-18.zip")
+            _ = try await Runtime.exec(URL(fileURLWithPath: "/usr/bin/tar"),
+                                       ["-a", "-cf", zip.path, "-C", export.path, "wp-content", "wp-config.php", "sql", "meta.json"])
+            check(SiteStore.siteName(for: zip) == "Selftest Importado", "nome sugerido a partir do ficheiro")
+
+            let site = try await store.importSite(from: zip, name: SiteStore.siteName(for: zip), into: tmp.appendingPathComponent("importados"),
+                                                 database: config)
+            let replaced = try await Runtime.php([Runtime.wpCli.path, "option", "get", "wpc_teste"], cwd: site.folder)
+            check(replaced == mixed("localhost:\(site.port)").replacingOccurrences(of: "https://", with: "http://"),
+                  "URLs escapadas e https trocadas; outras portas ficam (\(replaced))")
+            check(site.database.name != original.database.name && site.database.engine.needsServer, "base de dados nova no servidor gerido")
+            check(site.adminUser == "origem" && !site.adminPassword.isEmpty, "administrador do site de origem com palavra-passe nova")
+            await store.start(site)
+            var status = 0
+            for _ in 0..<40 where status != 200 {
+                try await Task.sleep(for: .milliseconds(250))
+                status = ((try? await URLSession.shared.data(from: site.url))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+            }
+            check(status == 200, "site importado responde 200")
+            let valid = await store.credentialsAreValid(site)
+            check(valid == true, "credenciais do site importado são válidas")
+            store.stop(site)
+        } catch {
+            check(false, "importar site: \(error.localizedDescription)")
+        }
+    }
+
+    /// Servidores instalados e livres, ou já arrancados por este teste (um ativo de outra forma pertence à app em uso).
+    private static func configsForImport(_ store: SiteStore) -> [DatabaseConfig] {
+        [DatabaseEngine.mariadb, .mysql].flatMap { engine in
+            (LocalServer.homebrewVersions[engine] ?? []).reversed().map { DatabaseConfig(engine: engine, targetVersion: $0) }
+        }
+        .filter { LocalServer($0).isInstalled && (SiteStore.isPortFree(LocalServer($0).port) || store.databaseServers[LocalServer($0)] != nil) }
     }
 
     private static func isListening(port: Int) -> Bool {

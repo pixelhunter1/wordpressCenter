@@ -125,8 +125,10 @@ enum Runtime {
         }.value
     }
 
-    static var bundledWordPressVersion: String {
-        let file = wordpress.appendingPathComponent("wp-includes/version.php")
+    static var bundledWordPressVersion: String { wordPressVersion(at: wordpress) }
+
+    static func wordPressVersion(at root: URL) -> String {
+        let file = root.appendingPathComponent("wp-includes/version.php")
         let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         return text.firstMatch(of: #/\$wp_version = '([^']+)'/#).map { String($0.1) } ?? "?"
     }
@@ -277,8 +279,8 @@ final class SiteStore: ObservableObject {
     @Published private(set) var sites: [Site] = []
     @Published private(set) var processes: [UUID: Process] = [:]
     @Published var errorMessage: String?
-    /// Pedido de um menu para a janela principal: Definições (⌘,), Novo site (⌘N), referência do cPanel (Ajuda).
-    enum WindowRequest { case settings, newSite, cpanel }
+    /// Pedido de um menu para a janela principal: Definições (⌘,), Novo site (⌘N), importar, referência do cPanel (Ajuda).
+    enum WindowRequest { case settings, newSite, importSites, cpanel }
     @Published var windowRequest: WindowRequest?
 
     let storage: URL
@@ -327,25 +329,9 @@ final class SiteStore: ObservableObject {
         guard !fm.fileExists(atPath: folder.path) else { throw AppError("Já existe uma pasta em \(folder.path).") }
         guard db.engine.isAvailable else { throw AppError("O WordPress não suporta \(db.engine.title).") }
 
-        if db.engine.needsServer {
-            var rootSocket: String?
-            if db.managed {
-                // Como no cPanel: base de dados e utilizador próprios, separados do login do WordPress, gerados ao acaso.
-                let server = LocalServer(db)
-                try await ensureRunning(server)
-                db.host = "127.0.0.1"
-                db.port = server.port
-                db.user = Self.cpanelStyleIdentifier()
-                db.password = Self.strongPassword()
-                rootSocket = server.socket
-            }
-            let verdict = try await DatabaseProbe.run(db, create: true, rootSocket: rootSocket).verdict(for: db)
-            guard verdict.ok else { throw AppError(verbatim: verdict.text) }
-        }
+        if db.engine.needsServer { try await prepareDatabase(&db) }
 
-        var port = (sites.map(\.port).max() ?? 8900) + 1
-        while !Self.isPortFree(port) { port += 1 }
-        let site = Site(name: name, path: folder.path, port: port, adminUser: adminUser,
+        let site = Site(name: name, path: folder.path, port: nextFreePort(), adminUser: adminUser,
                         adminPassword: adminPassword, wpVersion: Runtime.bundledWordPressVersion, database: db, phpVersion: php)
         let phpBinary = try site.phpExecutable()
         do {
@@ -363,11 +349,39 @@ final class SiteStore: ObservableObject {
             try? fm.removeItem(at: folder) // só apagamos a pasta que nós próprios criámos (confirmado acima que não existia)
             throw error
         }
+        try add(site)
+        return site
+    }
+
+    /// Cria a base de dados vazia. Num servidor gerido, como no cPanel: base de dados e utilizador próprios,
+    /// separados do login do WordPress, gerados ao acaso.
+    func prepareDatabase(_ db: inout DatabaseConfig) async throws {
+        var rootSocket: String?
+        if db.managed {
+            let server = LocalServer(db)
+            try await ensureRunning(server)
+            db.host = "127.0.0.1"
+            db.port = server.port
+            db.user = Self.cpanelStyleIdentifier()
+            db.password = Self.strongPassword()
+            rootSocket = server.socket
+        }
+        let verdict = try await DatabaseProbe.run(db, create: true, rootSocket: rootSocket).verdict(for: db)
+        guard verdict.ok else { throw AppError(verbatim: verdict.text) }
+    }
+
+    func nextFreePort() -> Int {
+        var port = (sites.map(\.port).max() ?? 8900) + 1
+        while !Self.isPortFree(port) { port += 1 }
+        return port
+    }
+
+    /// Acrescenta um site já pronto na pasta (usado pela importação).
+    func add(_ site: Site) throws {
         sites.append(site)
         try save()
         writeAgentFiles(for: site)
         installLocalHelpers(for: site)
-        return site
     }
 
     /// Instruções para agentes de IA (Claude Code, Codex…) dentro do site, como o Studio faz — mas a apontar para `wpc`.
@@ -463,8 +477,11 @@ final class SiteStore: ObservableObject {
         try dropIn.write(to: content.appendingPathComponent("db.php"), atomically: true, encoding: .utf8)
     }
 
+    /// Texto entre plicas para um ficheiro PHP.
+    static func phpQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'" }
+
     static func wpConfig(for db: DatabaseConfig) -> String {
-        func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'" }
+        let q = phpQuote
         let server = db.engine.needsServer
         let host = db.port == 3306 ? db.host : "\(db.host):\(db.port)"
         let salts = ["AUTH_KEY", "SECURE_AUTH_KEY", "LOGGED_IN_KEY", "NONCE_KEY",
@@ -837,7 +854,7 @@ final class SiteStore: ObservableObject {
         }
     }
 
-    private struct AccessResult: Decodable {
+    struct AccessResult: Decodable {
         let ok: Bool
         var error: String?
         var user: String?
@@ -845,7 +862,7 @@ final class SiteStore: ObservableObject {
     }
 
     /// Corre wpcenter-access.php no site. Segredos só por variáveis de ambiente.
-    private func access(_ site: Site, _ action: String, _ env: [String: String] = [:]) async throws -> AccessResult {
+    func access(_ site: Site, _ action: String, _ env: [String: String] = [:]) async throws -> AccessResult {
         if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.access.path], cwd: site.folder,
                                                       env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 },
@@ -1091,7 +1108,7 @@ final class SiteStore: ObservableObject {
         return user.isEmpty ? "administrador" : user
     }
 
-    static func slug(_ name: String) -> String {
+    nonisolated static func slug(_ name: String) -> String {
         let folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
         let mapped = folded.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
         return String(mapped).split(separator: "-").joined(separator: "-")

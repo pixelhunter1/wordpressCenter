@@ -28,6 +28,7 @@ enum CLI {
 
     Comandos:
       wpc list            Lista os sites
+      wpc import <ficheiro>  Importa uma exportação do WordPress Studio ou do Local (.zip/.tar.gz); --name "Nome"
       wpc status          Estado, endereço, credenciais e base de dados do site
       wpc start           Inicia o site (e o servidor de base de dados, se for preciso)
       wpc stop            Para o site
@@ -63,6 +64,28 @@ enum CLI {
                 print("\(status)  \(site.name)  \(site.url.absoluteString)  \(site.database.engine.title) \(site.database.targetVersion)  \(site.path)")
             }
             return 0
+        case "import":
+            var rest = Array(args.dropFirst())
+            var name: String?
+            if let i = rest.firstIndex(of: "--name"), i + 1 < rest.count { name = rest[i + 1]; rest.removeSubrange(i...(i + 1)) }
+            guard let file = rest.first else {
+                fail(L("Indique o ficheiro: wpc import <exportação.zip> [--name \"Nome\"]"))
+                return 1
+            }
+            let archive = URL(fileURLWithPath: file)
+            print(L("A importar \(archive.lastPathComponent)…"))
+            fflush(stdout)
+            do {
+                let site = try await store.importSite(from: archive, name: name ?? SiteStore.siteName(for: archive))
+                print(L("Pronto: \(site.name) em \(site.url.absoluteString)  —  \(site.path)"))
+                print(L("Utilizador: \(site.adminUser)  Palavra-passe: \(site.adminPassword)"))
+                store.stopAll() // os servidores de base de dados arrancados só para a importação
+                return 0
+            } catch {
+                fail(error.localizedDescription)
+                store.stopAll()
+                return 1
+            }
         default:
             break
         }

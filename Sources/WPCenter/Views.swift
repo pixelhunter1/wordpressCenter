@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Janela principal
 
@@ -15,6 +16,7 @@ struct ContentView: View {
     @State private var selection: SidebarItem?
     @State private var search = ""
     @State private var showNewSite = false
+    @State private var showImport = false
     @State private var showCPanel = false
     @State private var siteToDelete: Site?
     @State private var siteToRename: Site?
@@ -67,10 +69,15 @@ struct ContentView: View {
                     Text("Sites WordPress locais, a correr no seu Mac, sem contas nem serviços externos.")
                 } actions: {
                     Button("Novo site") { showNewSite = true }.buttonStyle(.borderedProminent).controlSize(.large)
+                    Button("Importar site…") { showImport = true }.buttonStyle(.link)
                 }
             }
         }
         .toolbar {
+            ToolbarItem {
+                Button { showImport = true } label: { Label("Importar site…", systemImage: "square.and.arrow.down") }
+                    .help("Importar uma exportação do WordPress Studio ou do Local")
+            }
             ToolbarItem {
                 Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
                     .foregroundStyle(.tint) // a ação principal da app: "+" azul, no mesmo grupo dos outros botões
@@ -79,6 +86,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showNewSite) {
             NewSiteView { selection = .site($0.id) }
+        }
+        .sheet(isPresented: $showImport) {
+            ImportSitesView { selection = .site($0.id) }
         }
         .sheet(isPresented: $showCPanel) { CPanelView() }
         .sheet(item: $siteToRename) { RenameSiteView(site: $0) }
@@ -117,6 +127,7 @@ struct ContentView: View {
         switch request {
         case .settings: if case .settings = selection {} else { selection = .settings(.general) } // mantém a secção aberta
         case .newSite: showNewSite = true
+        case .importSites: showImport = true
         case .cpanel: showCPanel = true
         }
     }
@@ -1024,6 +1035,94 @@ struct NewSiteView: View {
                 let site = try await store.create(name: name, in: directory, adminUser: user, adminPassword: password, database: db, php: php)
                 SiteStore.defaultDirectory = directory
                 onCreated(site)
+                await store.start(site)
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - Importar
+
+/// Cria um site a partir do ficheiro de exportação do WordPress Studio ou do Local (escolhido ou largado na folha).
+struct ImportSitesView: View {
+    @EnvironmentObject var store: SiteStore
+    @Environment(\.dismiss) private var dismiss
+    let onImported: (Site) -> Void
+
+    @State private var file: URL?
+    @State private var name = ""
+    @State private var importing = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SheetHeader(title: "Importar site", subtitle: "A partir de uma exportação do WordPress Studio ou do Local (.zip ou .tar.gz).")
+            Form {
+                Section {
+                    LabeledContent("Ficheiro") {
+                        HStack {
+                            Text(file?.lastPathComponent ?? L("Nenhum ficheiro escolhido"))
+                                .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                            Button("Escolher…", action: chooseFile).disabled(importing)
+                        }
+                    }
+                    TextField("Nome", text: $name, prompt: Text("O meu site")).accessibilityLabel("Nome do site").disabled(importing)
+                } footer: {
+                    Text("Também pode largar o ficheiro aqui. A base de dados vai para o MariaDB/MySQL do WP Center e o administrador recebe uma palavra-passe nova.")
+                }
+            }
+            .formStyle(.grouped)
+            .textFieldStyle(.roundedBorder)
+            SheetFooter {
+                if let error { ErrorText(error).font(.callout).lineLimit(4) }
+                Spacer()
+                Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction).disabled(importing)
+                Button(action: runImport) {
+                    if importing {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("A importar…") }
+                    } else {
+                        Text("Importar")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(importing || file == nil || SiteStore.slug(name).isEmpty)
+            }
+        }
+        .frame(width: 540, height: 340)
+        .interactiveDismissDisabled(importing)
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !importing, let url = urls.first else { return false }
+            pick(url)
+            return true
+        }
+    }
+
+    private func pick(_ url: URL) {
+        file = url
+        name = SiteStore.siteName(for: url)
+        error = nil
+    }
+
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.zip, .gzip]
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        if panel.runModal() == .OK, let url = panel.url { pick(url) }
+    }
+
+    private func runImport() {
+        guard let file else { return }
+        importing = true
+        error = nil
+        Task {
+            defer { importing = false }
+            do {
+                let site = try await store.importSite(from: file, name: name)
+                onImported(site)
                 await store.start(site)
                 dismiss()
             } catch {
