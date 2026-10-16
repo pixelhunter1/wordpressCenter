@@ -33,7 +33,7 @@ sed -i '' -e 's/ (auto-submitted to WordPress.com)//' \
 
 ICONSET=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$ICONSET"
-swift Scripts/make-icon.swift "$ICONSET/base.png"
+swift Scripts/make-icon.swift Assets/logo.svg "$ICONSET/base.png"
 for s in 16 32 128 256 512; do
   sips -z $s $s "$ICONSET/base.png" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
   sips -z $((s*2)) $((s*2)) "$ICONSET/base.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
