@@ -107,6 +107,8 @@ enum SelfTest {
         check(maria == Set(DatabaseEngine.mariadb.cpanelVersions), "versões MariaDB = tabela cPanel")
         check(DatabaseConfig.isValidIdentifier("cpuser_wp1") && !DatabaseConfig.isValidIdentifier("x`; DROP"), "validação do nome da BD")
         check(SiteStore.slug("Olá Mundo!") == "ola-mundo", "slug da pasta")
+        check(AgentSkill.all.allSatisfy { FileManager.default.fileExists(atPath: Runtime.skills.appendingPathComponent("\($0.id)/SKILL.md").path) },
+              "todas as habilidades do catálogo vêm na app")
         let ident = SiteStore.cpanelStyleIdentifier(), pass = SiteStore.strongPassword()
         check(ident.hasPrefix("wpc_") && ident.count <= 32 && DatabaseConfig.isValidIdentifier(ident)
               && ident.filter { $0 == "_" }.count == 1 && ident != SiteStore.cpanelStyleIdentifier(),
@@ -168,8 +170,12 @@ enum SelfTest {
                 let incompatible = try await store.collation(site, convert: false)
                 check(incompatible.isEmpty, "sem colações exclusivas do MySQL 8")
             }
-            check(FileManager.default.fileExists(atPath: site.path + "/WPCENTER.md")
-                  && FileManager.default.fileExists(atPath: site.path + "/.claude/skills/rank-me-up/SKILL.md"), "ficheiros para agentes criados")
+            check(FileManager.default.fileExists(atPath: site.path + "/WPCENTER.md"), "ficheiros para agentes criados")
+            store.syncSkills(for: site, enabled: Set(AgentSkill.all.map(\.id)).subtracting(["rank-me-up"]))
+            let skillExists = { (path: String) in FileManager.default.fileExists(atPath: site.path + path) }
+            check(skillExists("/.claude/skills/wp-rest-api/SKILL.md") && skillExists("/.agents/skills/wp-rest-api/SKILL.md")
+                  && !skillExists("/.claude/skills/rank-me-up") && !skillExists("/.agents/skills/rank-me-up"),
+                  "habilidade desligada sai do site; as ativas ficam")
             await store.start(site, detached: true) // como o `wpc start`
             var status = 0, body = ""
             for _ in 0..<40 where status != 200 {

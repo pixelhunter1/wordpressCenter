@@ -2,6 +2,24 @@ import AppKit
 import Foundation
 import Security
 
+/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio.
+struct AgentSkill: Identifiable {
+    let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
+    let title: String
+    let summary: String
+
+    static let all = [
+        AgentSkill(id: "wp-plugin-development", title: "Desenvolvimento de plugins", summary: "Hooks, Settings API, segurança e empacotamento"),
+        AgentSkill(id: "wp-block-development", title: "Desenvolvimento de blocos", summary: "block.json, atributos, renderização e deprecações"),
+        AgentSkill(id: "wp-block-themes", title: "Temas de blocos", summary: "theme.json, templates, padrões e variações de estilo"),
+        AgentSkill(id: "wp-rest-api", title: "REST API", summary: "Rotas, endpoints, schema e autenticação"),
+        AgentSkill(id: "wp-wpcli-and-ops", title: "WP-CLI e operações", summary: "Comandos, automação e search-replace, através do wpc wp"),
+        AgentSkill(id: "need-for-speed", title: "Desempenho", summary: "Auditoria de velocidade do site com recomendações"),
+        AgentSkill(id: "rank-me-up", title: "SEO", summary: "Auditoria de SEO on-page com recomendações"),
+        AgentSkill(id: "visual-design", title: "Design visual", summary: "Direção visual: layout, tipografia, cor e imagens"),
+    ]
+}
+
 struct AppError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
@@ -342,15 +360,29 @@ final class SiteStore: ObservableObject {
         - Produção: o site vai ser migrado para um servidor cPanel com o plugin WPvivid. `wpc export` cria o backup pronto a restaurar lá. Não faças alterações que dependam deste ambiente local (URLs `localhost` escritas à mão, caminhos absolutos do Mac).
 
         """)
+        syncSkills(for: site)
+    }
+
+    /// Copia para o site as habilidades ativas que faltam e apaga as desligadas, como o Studio.
+    /// Só mexe nas do catálogo: habilidades que o utilizador tenha posto no site ficam intactas.
+    func syncSkills(for site: Site, enabled: Set<String> = Prefs.enabledSkills) {
+        let fm = FileManager.default
         for dir in [".claude/skills", ".agents/skills"] {
             let target = site.folder.appendingPathComponent(dir)
-            guard let skills = try? fm.contentsOfDirectory(at: Runtime.skills, includingPropertiesForKeys: nil) else { continue }
             try? fm.createDirectory(at: target, withIntermediateDirectories: true)
-            for skill in skills where !fm.fileExists(atPath: target.appendingPathComponent(skill.lastPathComponent).path) {
-                try? fm.copyItem(at: skill, to: target.appendingPathComponent(skill.lastPathComponent))
+            for skill in AgentSkill.all {
+                let dest = target.appendingPathComponent(skill.id)
+                if !enabled.contains(skill.id) {
+                    try? fm.removeItem(at: dest)
+                } else if !fm.fileExists(atPath: dest.path) {
+                    try? fm.copyItem(at: Runtime.skills.appendingPathComponent(skill.id), to: dest)
+                }
             }
         }
     }
+
+    /// Depois de ligar/desligar uma habilidade nas Definições: aplica a todos os sites.
+    func syncSkillsInAllSites() { sites.forEach { syncSkills(for: $0) } }
 
     private func installSQLite(into folder: URL) throws {
         let content = folder.appendingPathComponent("wp-content")
