@@ -359,7 +359,8 @@ struct SiteDetailView: View {
 
     private var exportCard: some View {
         Card(title: "Exportar para cPanel", symbol: "shippingbox",
-             footnote: db.engine.needsServer ? "No cPanel: WPvivid → Backup & Restore → Upload → Restore." : nil) {
+             footnote: db.engine.needsServer
+                ? "Guardado em \(exportDestination). No cPanel: WPvivid → Backup & Restore → Upload → Restore." : nil) {
             if db.engine.needsServer {
                 Text("Backup do WPvivid pronto a restaurar no servidor, sem o que só existe no Mac.")
                     .foregroundStyle(.secondary)
@@ -413,6 +414,11 @@ struct SiteDetailView: View {
         }
     }
 
+    /// Onde a exportação vai parar, como o Finder o mostra (p.ex. "Descargas").
+    private var exportDestination: String {
+        Prefs.asksExportLocation ? "a pasta que escolher" : FileManager.default.displayName(atPath: Prefs.exportDirectory.path)
+    }
+
     private var exclusions: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Fica de fora da exportação").font(.headline)
@@ -448,13 +454,25 @@ struct SiteDetailView: View {
     // MARK: Ações
 
     private func export(_ collations: SiteStore.CollationPolicy = .check) {
+        var directory = Prefs.exportDirectory
+        if Prefs.asksExportLocation {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.directoryURL = directory
+            panel.prompt = "Exportar aqui"
+            panel.message = "Escolha onde guardar o backup de \(site.name)"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            directory = url
+        }
         exporting = true
         exportError = nil
         collationTables = nil
         exportResult = nil
         Task {
             do {
-                exportResult = try await store.exportForCPanel(site, collations: collations)
+                exportResult = try await store.exportForCPanel(site, collations: collations, to: directory)
             } catch let error as SiteStore.IncompatibleCollationError {
                 collationTables = error.tables
             } catch {
@@ -1199,6 +1217,8 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.launchBehaviorKey) private var launch = LaunchBehavior.none
     @AppStorage(Prefs.quitBehaviorKey) private var quit = QuitBehavior.stop
     @AppStorage(Prefs.showMenuBarKey) private var showMenuBar = false
+    @AppStorage(Prefs.exportDirectoryKey) private var exportDirectory = Prefs.exportDirectory.path
+    @AppStorage(Prefs.askExportLocationKey) private var askExportLocation = false
     @State private var opensAtLogin = Prefs.opensAtLogin
     @State private var needsApproval = Prefs.loginNeedsApproval
     @State private var loginError: String?
@@ -1242,6 +1262,29 @@ private struct GeneralSettings: View {
             }
 
             Section {
+                LabeledContent("Guardar em") {
+                    HStack {
+                        Text(FileManager.default.displayName(atPath: exportDirectory))
+                            .foregroundStyle(askExportLocation ? .tertiary : .secondary)
+                        Button("Escolher…") {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.canCreateDirectories = true
+                            panel.directoryURL = URL(fileURLWithPath: exportDirectory)
+                            if panel.runModal() == .OK, let url = panel.url { exportDirectory = url.path }
+                        }
+                        .disabled(askExportLocation)
+                    }
+                }
+                Toggle("Perguntar onde guardar em cada exportação", isOn: $askExportLocation)
+            } header: {
+                Text("Exportações para o cPanel")
+            } footer: {
+                Text("Cada exportação fica numa subpasta com o nome do site e a data.")
+            }
+
+            Section {
                 Toggle("Mostrar o WP Center na barra de menus", isOn: $showMenuBar)
             } footer: {
                 Text("Acesso rápido para iniciar, parar e abrir cada site. Com esta opção, fechar a janela não fecha a app.")
@@ -1249,7 +1292,7 @@ private struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
-        .frame(height: 420)
+        .frame(height: 560)
     }
 }
 

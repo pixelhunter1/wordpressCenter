@@ -43,6 +43,8 @@ enum Prefs {
     static let defaultVersionKey = "defaultVersion"
     static let defaultAdminUserKey = "defaultAdminUser"
     static let lastRunningSitesKey = "lastRunningSites"
+    static let exportDirectoryKey = "exportDirectory"
+    static let askExportLocationKey = "askExportLocation"
 
     private static var defaults: UserDefaults { .standard }
 
@@ -54,6 +56,19 @@ enum Prefs {
         get { (defaults.stringArray(forKey: lastRunningSitesKey) ?? []).compactMap(UUID.init(uuidString:)) }
         set { defaults.set(newValue.map(\.uuidString), forKey: lastRunningSitesKey) }
     }
+
+    // MARK: Exportações
+
+    /// Pasta das exportações para o cPanel: Descargas por omissão.
+    static var exportDirectory: URL {
+        get {
+            defaults.string(forKey: exportDirectoryKey).map { URL(fileURLWithPath: $0) }
+                ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        }
+        set { defaults.set(newValue.path, forKey: exportDirectoryKey) }
+    }
+
+    static var asksExportLocation: Bool { defaults.bool(forKey: askExportLocationKey) }
 
     // MARK: Novos sites
 

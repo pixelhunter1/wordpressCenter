@@ -5,6 +5,8 @@ import SwiftUI
 enum Main {
     static func main() {
         if URL(fileURLWithPath: CommandLine.arguments[0]).lastPathComponent == "wpc" {
+            // Como `wpc` o processo não tem o identificador da app: lê as mesmas preferências que ela.
+            UserDefaults.standard.addSuite(named: "local.wpcenter")
             Task { @MainActor in exit(await CLI.run()) }
             dispatchMain()
         }

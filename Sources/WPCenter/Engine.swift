@@ -655,7 +655,7 @@ final class SiteStore: ObservableObject {
     }
 
     /// Backup feito pelo próprio WPvivid do site (o mesmo plugin que restaura no cPanel), sem o que só existe no Mac.
-    /// Os ficheiros ficam em <pasta dos sites>/Exportações/<site>-<data>.
+    /// Os ficheiros ficam em <pasta de exportações (Descargas por omissão)>/<site>-<data>.
     /// Tabelas com colação exclusiva do MySQL 8 tornam o backup impossível de restaurar num cPanel com MariaDB.
     struct IncompatibleCollationError: LocalizedError {
         let tables: [String]
@@ -689,7 +689,7 @@ final class SiteStore: ObservableObject {
     /// (para um cPanel com MySQL 8, onde essas colações existem).
     enum CollationPolicy { case check, convert, ignore }
 
-    func exportForCPanel(_ site: Site, collations: CollationPolicy = .check) async throws -> ExportResult {
+    func exportForCPanel(_ site: Site, collations: CollationPolicy = .check, to directory: URL = Prefs.exportDirectory) async throws -> ExportResult {
         guard site.database.engine.needsServer else {
             throw AppError("Este site usa SQLite. O cPanel precisa de MySQL ou MariaDB: crie o site com MariaDB/MySQL para o poder exportar.")
         }
@@ -705,8 +705,7 @@ final class SiteStore: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmm"
         let stamp = formatter.string(from: Date())
-        let target = site.folder.deletingLastPathComponent()
-            .appendingPathComponent("Exportações/\(site.folder.lastPathComponent)-\(stamp)")
+        let target = directory.appendingPathComponent("\(site.folder.lastPathComponent)-\(stamp)")
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.wpvividExport.path],
                                                       cwd: site.folder, env: ["WPCENTER_EXPORT_DIR": target.path])
         guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
