@@ -1,15 +1,16 @@
 #!/bin/zsh
 # Compila o WP Center e monta dist/WP Center.app.
-# O runtime (PHP nativo, WordPress, plugin SQLite, WP-CLI) é copiado do Studio instalado — tudo local, nada é descarregado.
+# O runtime (PHP nativo, WordPress, plugin SQLite, WP-CLI) vem de Vendor/studio (fora do git), uma cópia das peças do Studio — tudo local, nada é descarregado.
+# Para atualizar: instalar o Studio e correr com STUDIO=/Applications/Studio.app/Contents/Resources, ou voltar a copiar as mesmas pastas para Vendor/studio.
 set -euo pipefail
 cd "${0:A:h}"
 
-STUDIO="${STUDIO:-/Applications/Studio.app/Contents/Resources}"
+STUDIO="${STUDIO:-Vendor/studio}"
 APP="dist/WP Center.app"
 # ponytail: o Swift 6.3 das Command Line Tools não compila contra o SDK 27; usa o SDK 26 mais recente. Remover quando as CLT forem atualizadas.
 export SDKROOT="${SDKROOT:-$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.*.sdk 2>/dev/null | sort -V | tail -1)}"
 
-[[ -d "$STUDIO/cli/wp-files" ]] || { echo "Studio não encontrado em $STUDIO (defina STUDIO=…)"; exit 1; }
+[[ -d "$STUDIO/cli/wp-files" ]] || { echo "Runtime não encontrado em $STUDIO (copie as peças do Studio para Vendor/studio ou defina STUDIO=…)"; exit 1; }
 PHP_DIR=$(ls -d "$STUDIO"/php-bin/*/ | sort -V | tail -1)
 # Mailpit (MIT, um só executável sem dependências): vai dentro da app, quem a usa não instala nada.
 MAILPIT="${MAILPIT:-$(command -v mailpit || true)}"

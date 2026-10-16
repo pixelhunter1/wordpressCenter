@@ -87,8 +87,9 @@ database version and PHP version as your hosting, and one click produces a
 **To build from source**
 
 - Xcode Command Line Tools (Swift 6 toolchain, macOS 26 SDK).
-- [WordPress Studio](https://developer.wordpress.com/studio/) installed in `/Applications/Studio.app`.
-  The build copies the PHP runtime, WordPress, the SQLite plugin, WP-CLI and some skills from it. **Nothing is downloaded.**
+- [WordPress Studio](https://developer.wordpress.com/studio/), once. The build copies the PHP runtime, WordPress, the SQLite plugin,
+  WP-CLI and some skills from it. **Nothing is downloaded.** By default it reads them from `Vendor/studio/` (not in git),
+  a copy of the same folders inside `Studio.app/Contents/Resources`, so Studio can be uninstalled afterwards.
 - `brew install mailpit cloudflared`. Both are bundled inside the app, so end users don't need them.
 
 ## Building from source
@@ -104,7 +105,8 @@ open "dist/WP Center.app"
 bundles Mailpit and cloudflared, and warns about any UI string that is missing an English translation.
 
 > [!TIP]
-> If Studio lives elsewhere, point the build at it with `STUDIO=/path/to/Studio.app/Contents/Resources ./build.sh`.
+> On a fresh clone there is no `Vendor/studio/` yet: build straight from Studio with
+> `STUDIO=/Applications/Studio.app/Contents/Resources ./build.sh`.
 > You can override the bundled tools the same way with `MAILPIT=` and `CLOUDFLARED=`.
 
 ---

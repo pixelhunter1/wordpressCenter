@@ -12,7 +12,7 @@ WP Center is a native macOS (SwiftUI) app for local WordPress sites, rebuilt fro
 open "dist/WP Center.app"                               # run the GUI
 ```
 
-- `build.sh` copies the PHP runtime, WordPress, the SQLite plugin, WP-CLI and three skills **from the installed Studio app** (`/Applications/Studio.app`, override with `STUDIO=`). Nothing is downloaded.
+- `build.sh` copies the PHP runtime, WordPress, the SQLite plugin, WP-CLI and the skills from `Vendor/studio/` (gitignored), a copy of those folders from `Studio.app/Contents/Resources`. Studio itself is no longer installed; to update the runtime, reinstall Studio and build with `STUDIO=/Applications/Studio.app/Contents/Resources` (or recopy the folders). Nothing is downloaded.
 - Toolchain quirks, both handled in `build.sh`: `swift build` is broken in the current Command Line Tools (SwiftPM fails to load), so the build calls `swiftc` directly on `Sources/WPCenter/*.swift`. Swift 6.3 doesn't compile against the macOS 27 SDK, so `SDKROOT` is set to the newest `MacOSX26.*.sdk`. `Package.swift` exists only to open the project in Xcode.
 - Code compiles in Swift 5 language mode: bare `/regex/` literals are not enabled, so use `#/.../#`.
 - There is no XCTest target and no linter. `--selftest` (`SelfTest` in `App.swift`) is the test suite: it creates real sites in a temp dir (SQLite, plus every managed MariaDB/MySQL version installed via Homebrew whose port is free), starts them, makes HTTP requests and checks login, access reset, rename, collations and stop behaviour. To run a subset, temporarily edit `SelfTest.run()`.
