@@ -82,6 +82,11 @@ struct SiteDetailView: View {
     @State private var confirmDelete = false
     @State private var revealPassword = false
     @State private var starting = false
+    @State private var revealDBPassword = false
+    @State private var openingAdmin = false
+    @State private var credentialsValid: Bool?
+    @State private var resetting = false
+    @State private var confirmReset = false
     @State private var exporting = false
     @State private var exportError: String?
     @State private var exportResult: SiteStore.ExportResult?
@@ -122,9 +127,14 @@ struct SiteDetailView: View {
 
                 HStack {
                     Button { NSWorkspace.shared.open(site.url) } label: { Label("Abrir site", systemImage: "safari") }
-                    Button { NSWorkspace.shared.open(site.url.appendingPathComponent("wp-admin/")) } label: {
+                    Button {
+                        openingAdmin = true
+                        Task { await store.openAdmin(site); openingAdmin = false }
+                    } label: {
                         Label("WP Admin", systemImage: "gauge.with.dots.needle.33percent")
                     }
+                    .disabled(openingAdmin)
+                    .help("Abre o painel já com sessão iniciada")
                     Spacer()
                     Button { NSWorkspace.shared.activateFileViewerSelecting([site.folder]) } label: {
                         Label("Finder", systemImage: "folder")
@@ -154,13 +164,24 @@ struct SiteDetailView: View {
                     LabeledContent("Onde", value: site.database.managed ? "Neste Mac (gerida pelo WP Center)" : "Servidor existente")
                     LabeledContent("Base de dados") { CopyableText(site.database.name) }
                     LabeledContent("Utilizador") { CopyableText(site.database.user) }
+                    LabeledContent("Palavra-passe") {
+                        HStack(spacing: 6) {
+                            Text(revealDBPassword ? site.database.password : String(repeating: "•", count: 12))
+                                .font(.body.monospaced())
+                            Button { revealDBPassword.toggle() } label: {
+                                Image(systemName: revealDBPassword ? "eye.slash" : "eye")
+                            }
+                            .buttonStyle(.borderless)
+                            CopyButton(value: site.database.password)
+                        }
+                    }
                     LabeledContent("Servidor", value: "\(site.database.host):\(String(site.database.port))")
                 } else {
                     LabeledContent("Ficheiro", value: "wp-content/database/.ht.sqlite")
                 }
             }
 
-            Section("Acesso") {
+            Section {
                 LabeledContent("Utilizador") { CopyableText(site.adminUser) }
                 LabeledContent("Palavra-passe") {
                     HStack(spacing: 6) {
@@ -174,6 +195,30 @@ struct SiteDetailView: View {
                         CopyButton(value: site.adminPassword)
                     }
                 }
+                if credentialsValid == false {
+                    Label("Estas credenciais já não funcionam neste site (foi restaurado com o WPvivid?).",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                HStack {
+                    Button(credentialsValid == false ? "Repor acesso" : "Gerar nova palavra-passe…") {
+                        if credentialsValid == false { resetAccess() } else { confirmReset = true }
+                    }
+                    .disabled(resetting)
+                    if resetting { ProgressView().controlSize(.small) }
+                }
+            } header: {
+                Text("Acesso")
+            } footer: {
+                Text("O botão WP Admin entra já com sessão iniciada, sem palavra-passe: usa um código de uso único, válido 60 segundos e aceite só a partir deste Mac.")
+            }
+            .task(id: running) {
+                if running { credentialsValid = await store.credentialsAreValid(site) }
+            }
+            .confirmationDialog("Gerar uma nova palavra-passe para \(site.adminUser)?", isPresented: $confirmReset) {
+                Button("Gerar nova palavra-passe") { resetAccess() }
+            } message: {
+                Text("A palavra-passe atual deixa de funcionar e as sessões abertas deste utilizador terminam.")
             }
 
             Section {
@@ -238,6 +283,20 @@ struct SiteDetailView: View {
         }
     }
 
+    private func resetAccess() {
+        resetting = true
+        Task {
+            do {
+                try await store.resetAccess(site)
+                credentialsValid = true
+                revealPassword = true
+            } catch {
+                store.errorMessage = "Não foi possível repor o acesso: \(error.localizedDescription)"
+            }
+            resetting = false
+        }
+    }
+
     private func openTerminal() {
         guard let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") else { return }
         NSWorkspace.shared.open([site.folder], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
@@ -284,8 +343,8 @@ struct NewSiteView: View {
 
     @State private var name = "O meu site"
     @State private var directory = SiteStore.defaultDirectory
-    @State private var user = "admin"
-    @State private var password = SiteStore.randomPassword(length: 16)
+    @State private var user = SiteStore.defaultAdminUser
+    @State private var password = SiteStore.strongPassword(length: 20)
     @State private var db = DatabaseConfig()
     @State private var creating = false
     @State private var installing = false
@@ -322,7 +381,7 @@ struct NewSiteView: View {
                     LabeledContent("Palavra-passe") {
                         HStack {
                             TextField("", text: $password).labelsHidden().font(.body.monospaced())
-                            Button { password = SiteStore.randomPassword(length: 16) } label: {
+                            Button { password = SiteStore.strongPassword(length: 20) } label: {
                                 Image(systemName: "arrow.clockwise")
                             }
                             .buttonStyle(.borderless)
@@ -332,13 +391,9 @@ struct NewSiteView: View {
                 } header: {
                     Text("Acesso")
                 } footer: {
-                    if let warning = userWarning {
-                        Label(warning, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    } else {
-                        Text(db.engine.needsServer && db.managed
-                             ? "Serve para entrar no WordPress e é também o acesso à base de dados."
-                             : "Serve para entrar no WordPress.")
-                    }
+                    Text(usesLocalServer
+                         ? "Serve para entrar no WordPress. A base de dados tem utilizador e palavra-passe próprios, gerados ao acaso."
+                         : "Serve para entrar no WordPress.")
                 }
 
                 Section {
@@ -370,7 +425,7 @@ struct NewSiteView: View {
                     }
                 } footer: {
                     if usesLocalServer {
-                        Text("A base de dados \"\(SiteStore.databaseName(for: name))\" é criada automaticamente no seu Mac. Escolha a mesma versão do seu servidor cPanel para migrar sem surpresas com o WPvivid.")
+                        Text("A base de dados e o seu utilizador são criados no seu Mac com nomes e palavra-passe aleatórios, no formato do cPanel (prefixo_nome). Escolha a mesma versão do seu servidor cPanel para migrar sem surpresas com o WPvivid.")
                     }
                 }
 
@@ -382,7 +437,7 @@ struct NewSiteView: View {
                             if !db.managed {
                                 TextField("Servidor", text: $db.host, prompt: Text("127.0.0.1"))
                                 TextField("Porta", value: $db.port, format: .number.grouping(.never))
-                                TextField("Base de dados", text: $db.name, prompt: Text(SiteStore.databaseName(for: name)))
+                                TextField("Base de dados", text: $db.name, prompt: Text("gerado ao acaso se ficar vazio"))
                                 TextField("Utilizador da base de dados", text: $db.user)
                                 SecureField("Palavra-passe da base de dados", text: $db.password)
                                 HStack {
@@ -421,8 +476,8 @@ struct NewSiteView: View {
         .frame(width: 580, height: 560)
         .sheet(isPresented: $showCPanel) { CPanelView() }
         .onAppear {
-            // Reutiliza o último acesso: no mesmo servidor local, o mesmo utilizador tem de ter a mesma palavra-passe.
-            if let last = store.sites.last { user = last.adminUser; password = last.adminPassword }
+            // Reutiliza o último utilizador por conveniência; nunca a palavra-passe.
+            if let last = store.sites.last { user = last.adminUser } // a palavra-passe é sempre nova
         }
     }
 
@@ -442,15 +497,9 @@ struct NewSiteView: View {
         }
     }
 
-    private var userWarning: String? {
-        guard usesLocalServer, !user.isEmpty else { return nil }
-        return DatabaseConfig.isValidIdentifier(user) && user.count <= 32
-            ? nil : "Use só letras, números e _ no utilizador (máx. 32)."
-    }
-
     private var canCreate: Bool {
         guard !creating, !installing, db.engine.isAvailable, !SiteStore.slug(name).isEmpty,
-              !user.trimmingCharacters(in: .whitespaces).isEmpty, !password.isEmpty, userWarning == nil else { return false }
+              !user.trimmingCharacters(in: .whitespaces).isEmpty, !password.isEmpty else { return false }
         return !usesLocalServer || server.isInstalled
     }
 
@@ -477,7 +526,7 @@ struct NewSiteView: View {
         Task {
             defer { testing = false }
             var probe = db
-            if probe.name.isEmpty { probe.name = SiteStore.databaseName(for: name) }
+            if probe.name.isEmpty { probe.name = SiteStore.cpanelStyleIdentifier() }
             do { test = try await DatabaseProbe.run(probe, create: false).verdict(for: probe) }
             catch { test = (false, error.localizedDescription) }
         }

@@ -18,6 +18,7 @@ $wpcenter_local_only = array(
 	'mu-plugins/sqlite-database-integration/', // plugin SQLite do Studio
 	'mu-plugins/99-studio-loader.php',         // carregador de mu-plugins do Studio
 	'mu-plugins/dev-',                         // mu-plugins de desenvolvimento (dev-*.php, p.ex. Mailpit)
+	'mu-plugins/wpcenter-',                    // entrada automática do WP Center (só local)
 );
 // Drop-in SQLite (Studio/WP Center): no cPanel o WordPress tem de usar MySQL/MariaDB.
 if ( is_file( WP_CONTENT_DIR . '/db.php' ) && false !== strpos( (string) file_get_contents( WP_CONTENT_DIR . '/db.php' ), 'SQLITE_DB_DROPIN' ) ) {

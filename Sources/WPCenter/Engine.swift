@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 
 struct AppError: LocalizedError {
     let message: String
@@ -23,6 +24,8 @@ enum Runtime {
     static var dbCheck: URL { root.appendingPathComponent("db-check.php") }
     static var skills: URL { root.appendingPathComponent("skills") }
     static var wpvividExport: URL { root.appendingPathComponent("wpvivid-export.php") }
+    static var access: URL { root.appendingPathComponent("wpcenter-access.php") }
+    static var autologin: URL { root.appendingPathComponent("wpcenter-autologin.php") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
 
@@ -220,7 +223,7 @@ final class SiteStore: ObservableObject {
 
     // MARK: Criar
 
-    func create(name: String, in directory: URL, adminUser: String = "admin", adminPassword: String = SiteStore.randomPassword(),
+    func create(name: String, in directory: URL, adminUser: String = "admin", adminPassword: String = SiteStore.strongPassword(),
                 database: DatabaseConfig) async throws -> Site {
         let name = name.trimmingCharacters(in: .whitespaces)
         let slug = Self.slug(name)
@@ -228,7 +231,7 @@ final class SiteStore: ObservableObject {
         let adminUser = adminUser.trimmingCharacters(in: .whitespaces)
         guard !adminUser.isEmpty, !adminPassword.isEmpty else { throw AppError("Indique o utilizador e a palavra-passe do site.") }
         var db = database
-        if db.name.isEmpty { db.name = Self.databaseName(for: name) }
+        if db.name.isEmpty { db.name = Self.cpanelStyleIdentifier() }
         let folder = directory.appendingPathComponent(slug)
         let fm = FileManager.default
         guard !fm.fileExists(atPath: folder.path) else { throw AppError("Já existe uma pasta em \(folder.path).") }
@@ -237,16 +240,13 @@ final class SiteStore: ObservableObject {
         if db.engine.needsServer {
             var rootSocket: String?
             if db.managed {
-                // O utilizador e a palavra-passe do site são também os da base de dados (como numa conta cPanel).
-                guard DatabaseConfig.isValidIdentifier(adminUser), adminUser.count <= 32 else {
-                    throw AppError("O utilizador só pode ter letras, números e _ (máx. 32), porque também é o utilizador da base de dados.")
-                }
+                // Como no cPanel: base de dados e utilizador próprios, separados do login do WordPress, gerados ao acaso.
                 let server = LocalServer(db)
                 try await ensureRunning(server)
                 db.host = "127.0.0.1"
                 db.port = server.port
-                db.user = adminUser
-                db.password = adminPassword
+                db.user = Self.cpanelStyleIdentifier()
+                db.password = Self.strongPassword()
                 rootSocket = server.socket
             }
             let verdict = try await DatabaseProbe.run(db, create: true, rootSocket: rootSocket).verdict(for: db)
@@ -275,6 +275,7 @@ final class SiteStore: ObservableObject {
         sites.append(site)
         try save()
         writeAgentFiles(for: site)
+        installLocalHelpers(for: site)
         return site
     }
 
@@ -396,7 +397,8 @@ final class SiteStore: ObservableObject {
     func start(_ site: Site, detached: Bool = false) async {
         guard !isRunning(site) else { return }
         do {
-            writeAgentFiles(for: site) // sites criados antes desta funcionalidade também recebem as instruções
+            writeAgentFiles(for: site) // sites criados antes destas funcionalidades também as recebem
+            installLocalHelpers(for: site)
             if site.database.engine.needsServer && site.database.managed {
                 try await ensureRunning(LocalServer(site.database))
             }
@@ -530,6 +532,74 @@ final class SiteStore: ObservableObject {
         p.terminate()
     }
 
+    // MARK: Acesso ao wp-admin
+
+    /// Instala/atualiza o mu-plugin de entrada automática (só funciona localmente; nunca vai na exportação).
+    func installLocalHelpers(for site: Site) {
+        let dir = site.folder.appendingPathComponent("wp-content/mu-plugins")
+        let target = dir.appendingPathComponent(Runtime.autologin.lastPathComponent)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: target)
+        try? FileManager.default.copyItem(at: Runtime.autologin, to: target)
+    }
+
+    private struct AccessResult: Decodable {
+        let ok: Bool
+        var error: String?
+        var user: String?
+        var valid: Bool?
+    }
+
+    /// Corre wpcenter-access.php no site. Segredos só por variáveis de ambiente.
+    private func access(_ site: Site, _ action: String, _ env: [String: String] = [:]) async throws -> AccessResult {
+        if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
+        let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.access.path], cwd: site.folder,
+                                                      env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 })
+        guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
+              let result = try? JSONDecoder().decode(AccessResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
+        else { throw AppError("O WordPress não respondeu:\n\(output.suffix(600))") }
+        guard result.ok else { throw AppError(result.error ?? "Falhou.") }
+        return result
+    }
+
+    /// URL de entrada no wp-admin com um código aleatório de uso único, válido 60 s, guardado no site só como hash.
+    func adminLoginURL(_ site: Site) async throws -> URL {
+        installLocalHelpers(for: site)
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AppError("Sem aleatoriedade segura.") }
+        let token = bytes.map { String(format: "%02x", $0) }.joined()
+        _ = try await access(site, "login", ["WPCENTER_TOKEN": token])
+        var components = URLComponents(url: site.url.appendingPathComponent("wp-admin/"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "wpcenter_login", value: token)]
+        return components.url!
+    }
+
+    /// Abre o wp-admin já com sessão iniciada (inicia o site se estiver parado).
+    func openAdmin(_ site: Site) async {
+        if !isRunning(site) { await start(site) }
+        do {
+            NSWorkspace.shared.open(try await adminLoginURL(site))
+        } catch {
+            NSWorkspace.shared.open(site.url.appendingPathComponent("wp-admin/"))
+            errorMessage = "Não foi possível entrar automaticamente: \(error.localizedDescription)"
+        }
+    }
+
+    /// nil = não foi possível verificar (p.ex. base de dados indisponível).
+    func credentialsAreValid(_ site: Site) async -> Bool? {
+        try? await access(site, "check", ["WPCENTER_PASS": site.adminPassword]).valid
+    }
+
+    /// Nova palavra-passe para o administrador (o guardado, ou o primeiro do site depois de um restauro).
+    func resetAccess(_ site: Site) async throws {
+        let password = Self.strongPassword()
+        let result = try await access(site, "reset", ["WPCENTER_PASS": password])
+        guard let index = sites.firstIndex(where: { $0.id == site.id }) else { return }
+        sites[index].adminUser = result.user ?? site.adminUser
+        sites[index].adminPassword = password
+        try save()
+    }
+
     // MARK: Exportar para cPanel
 
     struct ExportResult: Decodable {
@@ -630,9 +700,28 @@ final class SiteStore: ObservableObject {
         return canBind(AF_INET) && canBind(AF_INET6)
     }
 
-    /// Nome automático da base de dados, p.ex. "O meu site" → "wp_o_meu_site".
-    static func databaseName(for siteName: String) -> String {
-        String(("wp_" + slug(siteName).replacingOccurrences(of: "-", with: "_")).prefix(64))
+    /// Regras do cPanel (docs.cpanel.net, "Manage My Databases", v132+): `prefixo_nome`, minúsculas e números;
+    /// base de dados ≤ 64 caracteres (cada `_` conta 2), utilizador ≤ 32 no MySQL e ≤ 47 no MariaDB.
+    /// "wpc" faz de prefixo da conta; um só `_` e 10 caracteres aleatórios → 15 de 32. Serve para nome e utilizador.
+    nonisolated static func cpanelStyleIdentifier() -> String {
+        let chars = Array("abcdefghijkmnpqrstuvwxyz23456789") // sem 0/o/1/l, fáceis de confundir
+        var rng = SystemRandomNumberGenerator()
+        return "wpc_" + String((0..<10).map { _ in chars.randomElement(using: &rng)! })
+    }
+
+    /// Palavra-passe forte: maiúsculas, minúsculas, números e símbolos (pelo menos um de cada), sem aspas nem `\`.
+    nonisolated static func strongPassword(length: Int = 24) -> String {
+        let sets = [Array("ABCDEFGHJKLMNPQRSTUVWXYZ"), Array("abcdefghijkmnpqrstuvwxyz"), Array("23456789"), Array("!#%*()-_=+[]{}.,:;?~@^")]
+        var rng = SystemRandomNumberGenerator()
+        let all = sets.flatMap { $0 }
+        let picked = sets.map { $0.randomElement(using: &rng)! } + (0..<(length - sets.count)).map { _ in all.randomElement(using: &rng)! }
+        return String(picked.shuffled(using: &rng))
+    }
+
+    /// Utilizador do WordPress sugerido: o nome curto da conta do Mac (evita o "admin", o mais atacado).
+    static var defaultAdminUser: String {
+        let user = NSUserName().lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
+        return user.isEmpty ? "administrador" : user
     }
 
     static func slug(_ name: String) -> String {

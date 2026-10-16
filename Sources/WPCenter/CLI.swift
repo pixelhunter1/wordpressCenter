@@ -31,6 +31,7 @@ enum CLI {
       wpc status          Estado, endereço, credenciais e base de dados do site
       wpc start           Inicia o site (e o servidor de base de dados, se for preciso)
       wpc stop            Para o site
+      wpc admin           Abre o wp-admin já com sessão iniciada
       wpc export          Backup WPvivid pronto a restaurar no cPanel
       wpc wp <args…>      WP-CLI com o PHP e a base de dados do site
 
@@ -100,6 +101,12 @@ enum CLI {
             guard store.isRunning(site) else { print("\(site.name) já está parado."); return 0 }
             store.stop(site)
             print("\(site.name) parado.")
+            return 0
+
+        case "admin":
+            await store.openAdmin(site)
+            if let error = store.errorMessage { fail(error); return 1 }
+            print("wp-admin de \(site.name) aberto com sessão iniciada.")
             return 0
 
         case "export":

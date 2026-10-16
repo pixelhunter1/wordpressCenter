@@ -57,7 +57,13 @@ enum SelfTest {
         check(maria == Set(DatabaseEngine.mariadb.cpanelVersions), "versões MariaDB = tabela cPanel")
         check(DatabaseConfig.isValidIdentifier("cpuser_wp1") && !DatabaseConfig.isValidIdentifier("x`; DROP"), "validação do nome da BD")
         check(SiteStore.slug("Olá Mundo!") == "ola-mundo", "slug da pasta")
-        check(SiteStore.databaseName(for: "O meu site") == "wp_o_meu_site", "nome automático da base de dados")
+        let ident = SiteStore.cpanelStyleIdentifier(), pass = SiteStore.strongPassword()
+        check(ident.hasPrefix("wpc_") && ident.count <= 32 && DatabaseConfig.isValidIdentifier(ident)
+              && ident.filter { $0 == "_" }.count == 1 && ident != SiteStore.cpanelStyleIdentifier(),
+              "nome/utilizador da BD aleatório no formato cPanel (≤ 32)")
+        check(pass.count == 24 && pass.contains(where: \.isUppercase) && pass.contains(where: \.isLowercase)
+              && pass.contains(where: \.isNumber) && pass.contains(where: { !$0.isLetter && !$0.isNumber })
+              && !pass.contains("'") && !pass.contains("\\"), "palavra-passe forte com 4 tipos de caracteres")
         check(SiteStore.wpConfig(for: DatabaseConfig(engine: .mysql, name: "a", user: "u", password: "p'x\\")).contains("'p\\'x\\\\'"),
               "wp-config escapa palavras-passe")
 
@@ -104,6 +110,9 @@ enum SelfTest {
                 let probe = try await DatabaseProbe.run(site.database, create: false)
                 check(probe.engine == config.engine && probe.version == config.targetVersion && (probe.tables ?? 0) > 0,
                       "tabelas criadas em \(probe.engine?.title ?? "?") \(probe.version ?? "?")")
+                check(site.database.name.hasPrefix("wpc_") && site.database.user.hasPrefix("wpc_")
+                      && site.database.user != site.adminUser && site.database.password != site.adminPassword,
+                      "BD com utilizador e palavra-passe próprios, separados do login")
             }
             check(FileManager.default.fileExists(atPath: site.path + "/WPCENTER.md")
                   && FileManager.default.fileExists(atPath: site.path + "/.claude/skills/rank-me-up/SKILL.md"), "ficheiros para agentes criados")
@@ -122,6 +131,22 @@ enum SelfTest {
             check((login?.1 as? HTTPURLResponse)?.statusCode == 200, "wp-login.php responde 200")
 
             check(!SiteStore.isPortFree(site.port), "porta em uso é detetada")
+
+            // Entrada automática: o código entra uma vez; reutilizado, é recusado.
+            let loginURL = try await store.adminLoginURL(site)
+            let first = try await URLSession(configuration: .ephemeral).data(from: loginURL)
+            check(first.1.url?.absoluteString.hasSuffix("/wp-admin/") == true && String(decoding: first.0, as: UTF8.self).contains("action=logout"),
+                  "WP Admin entra com sessão iniciada")
+            let again = try await URLSession(configuration: .ephemeral).data(from: loginURL)
+            check(again.1.url?.path.hasSuffix("wp-login.php") == true, "o mesmo código não serve duas vezes")
+
+            let validBefore = await store.credentialsAreValid(site)
+            check(validBefore == true, "credenciais guardadas são válidas")
+            try await store.resetAccess(site)
+            let updated = store.sites.first { $0.id == site.id }!
+            let validAfter = await store.credentialsAreValid(updated)
+            check(updated.adminPassword != site.adminPassword && validAfter == true,
+                  "repor acesso gera e guarda uma palavra-passe nova")
 
             // Parar a partir de "outro processo" (como `wpc stop` com o site iniciado pela app, ou vice-versa).
             let other = SiteStore(storage: store.storage)
