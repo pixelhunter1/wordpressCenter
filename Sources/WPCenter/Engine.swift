@@ -447,7 +447,7 @@ final class SiteStore: ObservableObject {
 
         ## Verificar o trabalho
 
-        - `wpc login-url` — link de entrada no wp-admin já com sessão iniciada, de uso único e válido 60 s (inicia o site se for preciso). Abre-o no navegador que controlas para ver ou testar o painel.
+        - `wpc login-url [página]` — link de entrada no wp-admin já com sessão iniciada (p.ex. `wpc login-url plugins.php`), de uso único e válido 60 s; inicia o site se for preciso. Abre-o no navegador que controlas para ver ou testar o painel.
         - `wpc logs` — erros recentes do PHP e do `wp-content/debug.log`. Para registar tudo: `wpc wp config set WP_DEBUG true --raw`, `wpc wp config set WP_DEBUG_LOG true --raw` e `wpc wp config set WP_DEBUG_DISPLAY false --raw`; no fim volta a pôr `WP_DEBUG` a `false`.
         - `wpc mail` — emails enviados pelos sites (formulários, encomendas), apanhados neste Mac; `wpc mail <ID>` mostra o texto de um.
         - `wpc duplicate --name "…"` — cópia completa do site (ficheiros e base de dados) antes de uma alteração arriscada.
@@ -885,34 +885,134 @@ final class SiteStore: ObservableObject {
         let (_, output) = try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.access.path], cwd: site.folder,
                                                       env: env.merging(["WPCENTER_ACTION": action, "WPCENTER_USER": site.adminUser]) { $1 },
                                                       using: site.phpExecutable())
-        guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
-              let result = try? JSONDecoder().decode(AccessResult.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
-        else { throw AppError("O WordPress não respondeu:\n\(String(output.suffix(600)))") }
+        let result: AccessResult = try Self.decodeResult(output)
         guard result.ok else { throw result.error.map { AppError(verbatim: $0) } ?? AppError("Falhou.") }
         return result
     }
 
+    /// A linha "WPCENTER_RESULT {json}" que os scripts PHP escrevem no fim.
+    static func decodeResult<T: Decodable>(_ output: String) throws -> T {
+        guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix("WPCENTER_RESULT ") }),
+              let result = try? JSONDecoder().decode(T.self, from: Data(line.dropFirst("WPCENTER_RESULT ".count).utf8))
+        else { throw AppError("O WordPress não respondeu:\n\(String(output.suffix(600)))") }
+        return result
+    }
+
     /// URL de entrada no wp-admin com um código aleatório de uso único, válido 60 s, guardado no site só como hash.
-    func adminLoginURL(_ site: Site) async throws -> URL {
+    /// `page`: a página do wp-admin onde entrar (p.ex. "update-core.php").
+    func adminLoginURL(_ site: Site, page: String = "") async throws -> URL {
         installLocalHelpers(for: site)
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AppError("Sem aleatoriedade segura.") }
         let token = bytes.map { String(format: "%02x", $0) }.joined()
         _ = try await access(site, "login", ["WPCENTER_TOKEN": token])
-        var components = URLComponents(url: site.url.appendingPathComponent("wp-admin/"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: site.url.appendingPathComponent("wp-admin/" + page), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "wpcenter_login", value: token)]
         return components.url!
     }
 
     /// Abre o wp-admin já com sessão iniciada (inicia o site se estiver parado).
-    func openAdmin(_ site: Site) async {
+    func openAdmin(_ site: Site, page: String = "") async {
         if !isRunning(site) { await start(site) }
         do {
-            Prefs.openInBrowser(try await adminLoginURL(site))
+            Prefs.openInBrowser(try await adminLoginURL(site, page: page))
         } catch {
-            Prefs.openInBrowser(site.url.appendingPathComponent("wp-admin/"))
+            Prefs.openInBrowser(site.url.appendingPathComponent("wp-admin/" + page))
             errorMessage = L("Não foi possível entrar automaticamente: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: Estado e espaço
+
+    /// O que o próprio WordPress já sabe sobre atualizações (sem contactar a internet) e se o modo debug está ligado.
+    struct SiteHealth: Decodable {
+        var core: String?
+        var plugins: [String]
+        var themes: [String]
+        /// false se o WordPress ainda não verificou atualizações (ou as caches foram limpas).
+        var checked: Bool
+        var debug: Bool
+    }
+
+    func health(_ site: Site) async throws -> SiteHealth {
+        try Self.decodeResult(try await tools(site, ["WPCENTER_ACTION": "health"]))
+    }
+
+    /// Corre wpcenter-tools.php no site, com a base de dados a correr.
+    private func tools(_ site: Site, _ env: [String: String]) async throws -> String {
+        if site.database.engine.needsServer && site.database.managed { try await ensureRunning(LocalServer(site.database)) }
+        return try await Runtime.phpStatus([Runtime.wpCli.path, "eval-file", Runtime.tools.path], cwd: site.folder,
+                                           env: env, using: site.phpExecutable()).1
+    }
+
+    /// Um backup do WPvivid guardado no site: as partes partilham o id (`…_wpvivid-<id>_<data>_backup_all.part001.zip`).
+    struct WPvividBackup {
+        let id: String
+        var files: [URL]
+        var date: Date
+    }
+
+    /// Espaço de um site em disco, por partes. `database` é nil numa base de dados que não está neste Mac.
+    struct SiteSpace {
+        var uploads: Int64 = 0, plugins: Int64 = 0, backups: Int64 = 0, rest: Int64 = 0
+        var database: Int64?
+        var backupSets: [WPvividBackup] = []
+        var total: Int64 { uploads + plugins + backups + rest + (database ?? 0) }
+    }
+
+    /// Lento em sites grandes (percorre todos os ficheiros): chamar fora da thread principal.
+    nonisolated static func space(of folder: URL, sqlite: Bool, databaseDir: URL?) -> SiteSpace {
+        var space = SiteSpace()
+        // O percurso devolve caminhos sem atalhos (/var → /private/var) e os prefixos têm de bater: realpath, porque o
+        // resolvingSymlinksInPath volta a tirar o /private.
+        let folder = realpath(folder.path, nil).map { path in defer { free(path) }; return URL(fileURLWithPath: String(cString: path)) } ?? folder
+        let content = folder.appendingPathComponent("wp-content").path + "/"
+        if sqlite { space.database = 0 }
+        let keys: Set<URLResourceKey> = [.totalFileAllocatedSizeKey, .isRegularFileKey]
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys))
+        while let file = files?.nextObject() as? URL {
+            guard let values = try? file.resourceValues(forKeys: keys), values.isRegularFile == true else { continue }
+            let size = Int64(values.totalFileAllocatedSize ?? 0), path = file.path
+            if path.hasPrefix(content + "uploads/") { space.uploads += size }
+            else if path.hasPrefix(content + "plugins/") { space.plugins += size }
+            else if path.hasPrefix(content + "wpvividbackups/") { space.backups += size }
+            else if sqlite && path.hasPrefix(content + "database/") { space.database! += size }
+            else { space.rest += size }
+        }
+        if let databaseDir, FileManager.default.fileExists(atPath: databaseDir.path) {
+            space.database = Self.space(of: databaseDir, sqlite: false, databaseDir: nil).rest
+        }
+        space.backupSets = wpvividBackups(in: folder)
+        return space
+    }
+
+    /// Mais recente primeiro.
+    nonisolated static func wpvividBackups(in folder: URL) -> [WPvividBackup] {
+        let dir = folder.appendingPathComponent("wp-content/wpvividbackups")
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var sets: [String: WPvividBackup] = [:]
+        for file in files where file.pathExtension.lowercased() == "zip" {
+            let id = file.lastPathComponent.firstMatch(of: #/_(wpvivid-[0-9a-f]+)_/#).map { String($0.1) } ?? file.lastPathComponent
+            let date = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            sets[id, default: WPvividBackup(id: id, files: [], date: date)].files.append(file)
+            sets[id]!.date = max(sets[id]!.date, date)
+        }
+        return sets.values.sorted { $0.date > $1.date }
+    }
+
+    /// A pasta da base de dados do site no servidor gerido (fica fora da pasta do site).
+    func databaseDir(of site: Site) -> URL? {
+        let db = site.database
+        guard db.engine.needsServer, db.managed else { return nil }
+        return storage.appendingPathComponent("Databases/\(LocalServer(db).formula)/data/\(db.name)")
+    }
+
+    /// Manda para o Lixo os backups WPvivid do site, menos o mais recente, e tira-os da lista do WPvivid. Devolve quantos.
+    func trashOldWPvividBackups(_ site: Site) async throws -> Int {
+        let old = Self.wpvividBackups(in: site.folder).dropFirst()
+        for file in old.flatMap(\.files) { try FileManager.default.trashItem(at: file, resultingItemURL: nil) }
+        if !old.isEmpty { _ = try? await tools(site, ["WPCENTER_ACTION": "wpvivid-forget", "WPCENTER_IDS": old.map(\.id).joined(separator: ",")]) }
+        return old.count
     }
 
     /// nil = não foi possível verificar (p.ex. base de dados indisponível).

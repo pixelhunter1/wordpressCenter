@@ -35,7 +35,7 @@ add_action(
 		wp_set_current_user( $user->ID );
 		wp_set_auth_cookie( $user->ID, false );
 		do_action( 'wp_login', $user->user_login, $user );
-		wp_safe_redirect( admin_url() ); // tira o código do URL
+		wp_safe_redirect( remove_query_arg( 'wpcenter_login' ) ); // a mesma página do wp-admin, sem o código no URL
 		exit;
 	},
 	1

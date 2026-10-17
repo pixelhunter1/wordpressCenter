@@ -272,6 +272,10 @@ struct SiteDetailView: View {
     @State private var exportWPCError: String?
     @State private var exportWPCFile: URL?
     @State private var showShare = false
+    @State private var health: SiteStore.SiteHealth?
+    @State private var space: SiteStore.SiteSpace?
+    @State private var confirmTrash = false
+    @State private var trashing = false
 
     private var running: Bool { store.isRunning(site) }
     private var db: DatabaseConfig { site.database }
@@ -280,9 +284,11 @@ struct SiteDetailView: View {
     var body: some View {
         Form {
             Section { identity }
+            statusSection
             accessSection
             databaseSection
             exportSection
+            spaceSection
             detailsSection
         }
         .formStyle(.grouped)
@@ -291,8 +297,12 @@ struct SiteDetailView: View {
         .toolbar { toolbar }
         .focusedSceneValue(\.selectedSite, site.id)
         .task(id: running) {
-            if running { credentialsValid = await store.credentialsAreValid(site) }
+            health = nil
+            guard running else { return }
+            credentialsValid = await store.credentialsAreValid(site)
+            health = try? await store.health(site)
         }
+        .task(id: site.id) { await loadSpace() }
         .onChange(of: store.shares[site.id]?.url) { _, url in
             if url != nil { announce("Link de partilha pronto e copiado") }
         }
@@ -371,6 +381,128 @@ struct SiteDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var statusSection: some View {
+        Section {
+            if !running {
+                Text("Inicie o site para ver o estado.").foregroundStyle(.secondary)
+            } else if let health {
+                LabeledContent("WordPress \(site.wpVersion)") {
+                    if let core = health.core { StatusText("\(core) disponível", .update) } else { StatusText("Atualizado", .ok) }
+                }
+                updatesRow("Plugins", health.plugins, checked: health.checked)
+                updatesRow("Temas", health.themes, checked: health.checked)
+                LabeledContent("Modo debug") {
+                    if health.debug { StatusText("Ligado: desligue antes de exportar", .warning) } else { StatusText("Desligado", .ok) }
+                }
+                if health.core != nil || !health.plugins.isEmpty || !health.themes.isEmpty {
+                    HStack {
+                        Spacer()
+                        Button("Atualizar no WP Admin") { Task { await store.openAdmin(site, page: "update-core.php") } }
+                    }
+                }
+            } else {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("A ler o estado…").foregroundStyle(.secondary) }
+            }
+        } header: {
+            Text("Estado")
+        } footer: {
+            Text("Lido do próprio WordPress, sem contactar a internet: as atualizações são as que ele encontrou da última vez que verificou.")
+        }
+    }
+
+    private func updatesRow(_ title: LocalizedStringKey, _ names: [String], checked: Bool) -> some View {
+        LabeledContent(title) {
+            if !checked {
+                StatusText("Por verificar", .unknown)
+            } else if names.isEmpty {
+                StatusText("Atualizados", .ok)
+            } else {
+                StatusText(names.count == 1 ? "1 por atualizar" : "\(names.count) por atualizar", .update)
+                    .help(names.joined(separator: ", "))
+            }
+        }
+    }
+
+    private var spaceSection: some View {
+        Section {
+            if let space {
+                let parts = spaceParts(space)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("No disco")
+                        Spacer()
+                        Text(bytes(space.total)).fontWeight(.medium)
+                    }
+                    StorageBar(parts: parts.map { ($0.bytes, $0.color) })
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)], alignment: .leading, spacing: 4) {
+                        ForEach(parts, id: \.name) { part in
+                            HStack(spacing: 5) {
+                                Circle().fill(part.color).frame(width: 8, height: 8)
+                                Text("\(part.name) \(bytes(part.bytes))")
+                            }
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+                if let newest = space.backupSets.first {
+                    LabeledContent {
+                        if space.backupSets.count > 1 {
+                            Button("Apagar os antigos…") { confirmTrash = true }
+                                .disabled(trashing)
+                                .confirmationDialog("Apagar os backups WPvivid antigos?", isPresented: $confirmTrash) {
+                                    Button("Mover para o Lixo", role: .destructive, action: trashOldBackups)
+                                } message: {
+                                    Text("Vão para o Lixo e saem da lista do WPvivid. O backup mais recente fica no site.")
+                                }
+                        }
+                    } label: {
+                        Text("Backups WPvivid no site")
+                        Text(space.backupSets.count == 1
+                             ? L("1 backup, de \(newest.date.formatted(date: .abbreviated, time: .omitted))")
+                             : L("\(space.backupSets.count) backups, o mais recente de \(newest.date.formatted(date: .abbreviated, time: .omitted))"))
+                    }
+                }
+            } else {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("A medir…").foregroundStyle(.secondary) }
+            }
+        } header: {
+            Text("Espaço")
+        } footer: {
+            if (space?.backupSets.count ?? 0) > 1 {
+                Text("“Apagar os antigos” manda para o Lixo todos os backups menos o mais recente.")
+            }
+        }
+    }
+
+    private func spaceParts(_ space: SiteStore.SiteSpace) -> [(name: String, bytes: Int64, color: Color)] {
+        [(L("Uploads"), space.uploads, Color.blue), (L("Base de dados"), space.database ?? 0, .purple), (L("Plugins"), space.plugins, .green),
+         (L("Backups WPvivid"), space.backups, .orange), (L("Resto"), space.rest, .gray)]
+            .filter { $0.1 > 0 }
+    }
+
+    private func bytes(_ count: Int64) -> String { ByteCountFormatter.string(fromByteCount: count, countStyle: .file) }
+
+    private func loadSpace() async {
+        let folder = site.folder, sqlite = db.engine == .sqlite, databaseDir = store.databaseDir(of: site)
+        space = await Task.detached { SiteStore.space(of: folder, sqlite: sqlite, databaseDir: databaseDir) }.value
+    }
+
+    private func trashOldBackups() {
+        trashing = true
+        Task {
+            do {
+                _ = try await store.trashOldWPvividBackups(site)
+                announce("Backups antigos movidos para o Lixo")
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+            await loadSpace()
+            trashing = false
+        }
     }
 
     private var accessSection: some View {
@@ -726,6 +858,46 @@ extension View {
 /// Lido pelo VoiceOver quando algo muda sem mudar o foco (copiar, link pronto, exportação).
 @MainActor func announce(_ text: String.LocalizationValue) {
     AccessibilityNotification.Announcement(L(text)).post()
+}
+
+/// Estado de uma linha do cartão Estado: o ícone diz se está bem, o texto diz o quê (distinguível sem cores).
+private struct StatusText: View {
+    enum Kind { case ok, update, warning, unknown }
+    let text: LocalizedStringKey
+    let kind: Kind
+    init(_ text: LocalizedStringKey, _ kind: Kind) { self.text = text; self.kind = kind }
+
+    var body: some View {
+        Label {
+            Text(text).foregroundStyle(.secondary)
+        } icon: {
+            switch kind {
+            case .ok: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            case .update: Image(systemName: "arrow.up.circle.fill").foregroundStyle(.orange)
+            case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            case .unknown: Image(systemName: "questionmark.circle").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// Barra do espaço por partes, como a do Armazenamento nas Definições do Sistema. A legenda ao lado tem os números.
+private struct StorageBar: View {
+    let parts: [(bytes: Int64, color: Color)]
+
+    var body: some View {
+        GeometryReader { geo in
+            let total = CGFloat(max(1, parts.reduce(0) { $0 + $1.bytes }))
+            HStack(spacing: 0) {
+                ForEach(parts.indices, id: \.self) { i in
+                    parts[i].color.frame(width: max(2, geo.size.width * CGFloat(parts[i].bytes) / total))
+                }
+            }
+        }
+        .frame(height: 10)
+        .clipShape(Capsule())
+        .accessibilityHidden(true)
+    }
 }
 
 /// Erro com o ícone a vermelho e o texto em cor normal: vermelho sobre fundo claro não tem contraste suficiente.

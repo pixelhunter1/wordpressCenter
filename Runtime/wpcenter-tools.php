@@ -3,6 +3,8 @@
  * Ferramentas para agentes de IA, chamadas pelo `wpc`. Uso: wp eval-file wpcenter-tools.php
  * Lê tudo do ambiente:
  *   WPCENTER_ACTION   context (resumo do site para um agente começar a trabalhar) | flush (limpa as caches)
+ *                     | health (atualizações já conhecidas pelo WordPress e modo debug, numa linha WPCENTER_RESULT)
+ *                     | wpvivid-forget (tira da lista do WPvivid os backups de WPCENTER_IDS, já apagados pela app)
  *   WPCENTER_JSON     1 → context em JSON
  */
 
@@ -170,7 +172,57 @@ function wpcenter_tools_flush() {
 	echo wpcenter_t( 'Caches limpas: ', 'Caches cleared: ' ) . implode( ', ', $done ) . "\n";
 }
 
+/** Só o que o WordPress já guardou da última verificação: não contacta a internet. */
+function wpcenter_tools_health() {
+	$core    = get_site_transient( 'update_core' );
+	$plugins = get_site_transient( 'update_plugins' );
+	$themes  = get_site_transient( 'update_themes' );
+
+	$available = null;
+	foreach ( isset( $core->updates ) ? (array) $core->updates : array() as $offer ) {
+		if ( 'upgrade' === ( $offer->response ?? '' ) ) {
+			$available = $offer->current;
+			break;
+		}
+	}
+	$plugin_names = array();
+	$installed    = get_plugins();
+	foreach ( array_keys( (array) ( $plugins->response ?? array() ) ) as $file ) {
+		$plugin_names[] = $installed[ $file ]['Name'] ?? dirname( $file );
+	}
+	$theme_names = array();
+	foreach ( array_keys( (array) ( $themes->response ?? array() ) ) as $slug ) {
+		$theme         = wp_get_theme( $slug );
+		$theme_names[] = $theme->exists() ? $theme->get( 'Name' ) : $slug;
+	}
+	echo 'WPCENTER_RESULT ' . wp_json_encode(
+		array(
+			'core'    => $available,
+			'plugins' => $plugin_names,
+			'themes'  => $theme_names,
+			'checked' => isset( $plugins->last_checked ),
+			'debug'   => defined( 'WP_DEBUG' ) && WP_DEBUG,
+		)
+	) . "\n";
+}
+
+/** Os ficheiros já foram para o Lixo pela app: sem isto o WPvivid continuava a mostrá-los na lista de backups. */
+function wpcenter_tools_wpvivid_forget() {
+	if ( class_exists( 'WPvivid_Backuplist' ) ) {
+		foreach ( array_filter( explode( ',', (string) getenv( 'WPCENTER_IDS' ) ) ) as $id ) {
+			WPvivid_Backuplist::delete_backup( $id );
+		}
+	}
+	echo 'WPCENTER_RESULT ' . wp_json_encode( array( 'ok' => true ) ) . "\n";
+}
+
 switch ( getenv( 'WPCENTER_ACTION' ) ) {
+	case 'health':
+		wpcenter_tools_health();
+		break;
+	case 'wpvivid-forget':
+		wpcenter_tools_wpvivid_forget();
+		break;
 	case 'context':
 		wpcenter_tools_context();
 		break;

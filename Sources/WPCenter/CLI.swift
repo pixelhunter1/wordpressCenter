@@ -33,7 +33,7 @@ enum CLI {
       wpc start              Inicia o site (e o servidor de base de dados, se for preciso)
       wpc stop               Para o site
       wpc admin              Abre o wp-admin já com sessão iniciada
-      wpc login-url          Link de entrada no wp-admin, de uso único e válido 60 s (inicia o site se for preciso)
+      wpc login-url [página] Link de entrada no wp-admin (p.ex. plugins.php), de uso único e válido 60 s
       wpc flush              Limpa as caches: objetos, transients, ligações permanentes, Elementor, plugins de cache
       wpc logs [linhas]      Erros recentes do PHP e do wp-content/debug.log
       wpc mail [ID]          Últimos emails apanhados pelo Mailpit; com ID, mostra o texto de um (--json)
@@ -215,7 +215,7 @@ enum CLI {
                 for _ in 0..<40 where SiteStore.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(250)) }
             }
             do {
-                print(try await store.adminLoginURL(site).absoluteString)
+                print(try await store.adminLoginURL(site, page: args.dropFirst().first ?? "").absoluteString)
                 return 0
             } catch {
                 fail(error.localizedDescription)

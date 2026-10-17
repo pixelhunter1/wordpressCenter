@@ -254,7 +254,7 @@ Usage: wpc [--path <site-folder>] <command>
   wpc start           Start the site (and the database server, if needed)
   wpc stop            Stop the site
   wpc admin           Open wp-admin already signed in
-  wpc login-url       One-time wp-admin sign-in link, valid for 60 s (starts the site if needed)
+  wpc login-url [page] One-time wp-admin sign-in link (e.g. plugins.php), valid for 60 s
   wpc flush           Clear caches: object cache, transients, permalinks, Elementor, cache plugins
   wpc logs [lines]    Recent PHP errors and wp-content/debug.log
   wpc mail [ID]       Latest emails caught by Mailpit; with an ID, shows one as text (--json)

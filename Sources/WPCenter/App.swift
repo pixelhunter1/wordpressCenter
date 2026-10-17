@@ -237,6 +237,23 @@ enum SelfTest {
             check(context?["url"] as? String == site.url.absoluteString && context?["plugins"] != nil && context?["content"] != nil,
                   "wpc context descreve o site")
             check(try await tool("flush").contains("transients"), "wpc flush limpa as caches")
+
+            // Cartões Estado e Espaço.
+            let health = try await store.health(site)
+            check(!health.debug, "estado lido do WordPress (debug desligado)")
+            let backups = site.folder.appendingPathComponent("wp-content/wpvividbackups")
+            try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
+            for (name, age) in [("x_wpvivid-aaa111_2026-10-01_backup_all.part001.zip", 200.0), ("x_wpvivid-aaa111_2026-10-01_backup_all.part002.zip", 200),
+                                ("x_wpvivid-bbb222_2026-10-16_backup_all.zip", 0)] {
+                let file = backups.appendingPathComponent(name)
+                try Data(count: 4096).write(to: file)
+                try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: file.path)
+            }
+            let space = SiteStore.space(of: site.folder, sqlite: config.engine == .sqlite, databaseDir: store.databaseDir(of: site))
+            check(space.backupSets.map(\.id) == ["wpvivid-bbb222", "wpvivid-aaa111"] && space.backupSets[1].files.count == 2
+                  && space.plugins > 0 && space.backups > 0 && (space.database ?? 0) > 0,
+                  "espaço por partes e backups WPvivid agrupados, o mais recente primeiro")
+            try FileManager.default.removeItem(at: backups)
             await store.start(site, detached: true) // como o `wpc start`
             var status = 0, body = ""
             for _ in 0..<40 where status != 200 {
