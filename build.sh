@@ -71,6 +71,8 @@ done
 rm "$ICONSET/base.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 cp Assets/logo.svg "$APP/Contents/Resources/logo.svg" # logo usado dentro da app
+# Plugin dos sites live, já em zip para Plugins → Adicionar → Carregar (a pasta dentro do zip é o nome do plugin).
+ditto -c -k --norsrc --noextattr --keepParent Plugin/wpcenter-ligacao "$APP/Contents/Resources/wpcenter-ligacao.zip"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -90,6 +92,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 	<key>NSHighResolutionCapable</key><true/>
+	<key>CFBundleURLTypes</key><array><dict>
+		<key>CFBundleURLName</key><string>local.wpcenter.ligar</string>
+		<key>CFBundleURLSchemes</key><array><string>wpcenter</string></array>
+	</dict></array>
 	<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>
 </plist>

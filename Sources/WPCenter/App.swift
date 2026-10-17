@@ -27,7 +27,11 @@ struct WPCenterApp: App {
         WindowGroup("WP Center", id: "main") {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(LiveStore.shared)
                 .frame(minWidth: 860, minHeight: 560)
+                // wpcenter://ligar…: o WordPress devolve a ligação aprovada. Vai para a janela aberta, sem abrir outra.
+                .onOpenURL { LiveStore.shared.handle($0) }
+                .handlesExternalEvents(preferring: ["wpcenter"], allowing: ["*"])
         }
         .defaultSize(width: 1040, height: 740)
         .windowToolbarStyle(.unified)
@@ -35,6 +39,8 @@ struct WPCenterApp: App {
             CommandGroup(replacing: .newItem) {
                 MainWindowButton(title: "Novo site…", request: .newSite).keyboardShortcut("n")
                 MainWindowButton(title: "Importar site…", request: .importSites)
+                Divider()
+                MainWindowButton(title: "Ligar site live…", request: .connectLive)
             }
             CommandGroup(replacing: .appSettings) { MainWindowButton(title: "Definições…", request: .settings).keyboardShortcut(",") }
             SiteCommands()
@@ -115,6 +121,11 @@ enum SelfTest {
         check(maria == Set(DatabaseEngine.mariadb.cpanelVersions), "versões MariaDB = tabela cPanel")
         check(DatabaseConfig.isValidIdentifier("cpuser_wp1") && !DatabaseConfig.isValidIdentifier("x`; DROP"), "validação do nome da BD")
         check(SiteStore.slug("Olá Mundo!") == "ola-mundo", "slug da pasta")
+        // Sites live: o endereço escrito vira a raiz do WordPress em https; http só para este Mac.
+        let origin = { (text: String) in (try? LiveStore.origin(from: text))?.absoluteString }
+        check(origin("loja.pt/wp-admin/") == "https://loja.pt" && origin(" https://x.pt/blog/wp-login.php ") == "https://x.pt/blog"
+              && origin("http://loja.pt") == nil && origin("http://localhost:8080") == "http://localhost:8080",
+              "endereço de site live → raiz em https")
         // Sites guardados antes da escolha de PHP (sem phpVersion) usam o PHP incluído na app.
         let legacy = Site(name: "x", path: "/tmp/x", port: 1, adminPassword: "p", wpVersion: "7", database: DatabaseConfig())
         var legacyJSON = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as! [String: Any]

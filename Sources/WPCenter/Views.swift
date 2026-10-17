@@ -5,14 +5,17 @@ import UniformTypeIdentifiers
 
 // MARK: - Janela principal
 
-/// O que está escolhido na barra lateral: um site ou uma secção das Definições.
+/// O que está escolhido na barra lateral: um site local, os sites live (todos ou um) ou uma secção das Definições.
 enum SidebarItem: Hashable {
     case site(Site.ID)
+    case liveOverview
+    case live(LiveSite.ID)
     case settings(SettingsPane)
 }
 
 struct ContentView: View {
     @EnvironmentObject var store: SiteStore
+    @EnvironmentObject var live: LiveStore
     @State private var selection: SidebarItem?
     @State private var search = ""
     @State private var showNewSite = false
@@ -21,15 +24,24 @@ struct ContentView: View {
     @State private var siteToDelete: Site?
     @State private var siteToRename: Site?
     @State private var siteToDuplicate: Site?
+    /// Folha "Ligar site live"; o endereço vem preenchido ao ligar de novo um site.
+    @State private var connectAddress: String?
 
     private var filteredSites: [Site] {
         search.isEmpty ? store.sites : store.sites.filter { $0.name.localizedCaseInsensitiveContains(search) }
     }
 
+    private var showsLive: Bool {
+        switch selection {
+        case .liveOverview, .live: true
+        default: false
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Section("Sites") {
+                Section("Sites locais") {
                     ForEach(filteredSites) { site in
                         SiteRow(site: site, running: store.isRunning(site), shared: store.shares[site.id] != nil)
                             .tag(SidebarItem.site(site.id))
@@ -38,6 +50,7 @@ struct ContentView: View {
                             }
                     }
                 }
+                LiveSidebarSection(search: search) { connectAddress = "" }
             }
             .searchable(text: $search, placement: .sidebar, prompt: "Procurar")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
@@ -63,6 +76,11 @@ struct ContentView: View {
         } detail: {
             if case .settings(let pane) = selection {
                 SettingsPaneView(pane: pane)
+            } else if selection == .liveOverview {
+                LiveOverviewView(onOpen: { selection = .live($0) }) { connectAddress = "" }
+            } else if case .live(let id) = selection, let site = live.sites.first(where: { $0.id == id }) {
+                LiveSiteDetailView(site: site) { connectAddress = site.url.absoluteString }
+                    .id(site.id)
             } else if case .site(let id) = selection, let site = store.sites.first(where: { $0.id == id }) {
                 SiteDetailView(site: site, onRename: { siteToRename = site }, onDuplicate: { siteToDuplicate = site }) { siteToDelete = site }
                     .id(site.id)
@@ -78,16 +96,23 @@ struct ContentView: View {
             }
         }
         .toolbar {
-            ToolbarItem {
-                Button { showImport = true } label: { Label("Importar site…", systemImage: "square.and.arrow.down") }
-                    .help("Importar uma exportação da WP Center, do WordPress Studio ou do Local, ou um backup do WPvivid")
-            }
-            ToolbarItem {
-                Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
-                    .foregroundStyle(.tint) // a ação principal da app: "+" azul, no mesmo grupo dos outros botões
-                    .help("Criar um novo site WordPress (⌘N)") // o atalho vive no menu Ficheiro
+            // Nos sites live a barra tem as ações deles (verificar, atualizar, ligar): os botões dos sites locais saem.
+            if !showsLive {
+                ToolbarItem {
+                    Button { showImport = true } label: { Label("Importar site…", systemImage: "square.and.arrow.down") }
+                        .help("Importar uma exportação da WP Center, do WordPress Studio ou do Local, ou um backup do WPvivid")
+                }
+                ToolbarItem {
+                    Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
+                        .foregroundStyle(.tint) // a ação principal da app: "+" azul, no mesmo grupo dos outros botões
+                        .help("Criar um novo site WordPress (⌘N)") // o atalho vive no menu Ficheiro
+                }
             }
         }
+        .sheet(isPresented: Binding(get: { connectAddress != nil }, set: { if !$0 { connectAddress = nil } })) {
+            ConnectLiveSiteView(address: connectAddress ?? "")
+        }
+        .onChange(of: live.justConnected) { _, id in if let id { selection = .live(id) } }
         .sheet(isPresented: $showNewSite) {
             NewSiteView { selection = .site($0.id) }
         }
@@ -133,6 +158,7 @@ struct ContentView: View {
         case .settings: if case .settings = selection {} else { selection = .settings(.general) } // mantém a secção aberta
         case .newSite: showNewSite = true
         case .importSites: showImport = true
+        case .connectLive: connectAddress = ""
         case .cpanel: showCPanel = true
         }
     }
@@ -871,7 +897,7 @@ extension View {
 }
 
 /// Botão da barra de ferramentas com o ícone a cores e o texto normal: o estado (iniciar, parar, partilhado) vê-se de relance.
-private struct ToolbarLabel: View {
+struct ToolbarLabel: View {
     let title: LocalizedStringKey
     let symbol: String
     let color: Color
@@ -884,7 +910,7 @@ private struct ToolbarLabel: View {
 }
 
 /// Estado de uma linha do cartão Estado: o ícone diz se está bem, o texto diz o quê (distinguível sem cores).
-private struct StatusText: View {
+struct StatusText: View {
     enum Kind { case ok, update, warning, unknown }
     let text: LocalizedStringKey
     let kind: Kind
@@ -924,7 +950,7 @@ private struct StorageBar: View {
 }
 
 /// Erro com o ícone a vermelho e o texto em cor normal: vermelho sobre fundo claro não tem contraste suficiente.
-private struct ErrorText: View {
+struct ErrorText: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -932,7 +958,7 @@ private struct ErrorText: View {
     }
 }
 
-private struct Banner: View {
+struct Banner: View {
     let text: String
     var body: some View {
         Label { Text(text) } icon: { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
@@ -1467,7 +1493,7 @@ struct ImportSitesView: View {
 // MARK: - Bases de dados do cPanel
 
 /// Título de uma folha, separado do formulário: o conteúdo que faz scroll não passa por baixo dele.
-private struct SheetHeader: View {
+struct SheetHeader: View {
     let title: LocalizedStringKey
     var subtitle: LocalizedStringKey?
 
@@ -1487,7 +1513,7 @@ private struct SheetHeader: View {
 }
 
 /// Barra de botões no fundo de uma folha, separada do formulário.
-private struct SheetFooter<Content: View>: View {
+struct SheetFooter<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {

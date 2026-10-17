@@ -282,7 +282,7 @@ final class SiteStore: ObservableObject {
     @Published private(set) var processes: [UUID: Process] = [:]
     @Published var errorMessage: String?
     /// Pedido de um menu para a janela principal: Definições (⌘,), Novo site (⌘N), importar, referência do cPanel (Ajuda).
-    enum WindowRequest { case settings, newSite, importSites, cpanel }
+    enum WindowRequest { case settings, newSite, importSites, connectLive, cpanel }
     @Published var windowRequest: WindowRequest?
 
     let storage: URL
