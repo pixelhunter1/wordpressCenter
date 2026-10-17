@@ -298,9 +298,11 @@ struct SiteDetailView: View {
         .focusedSceneValue(\.selectedSite, site.id)
         .task(id: running) {
             health = nil
-            guard running else { return }
-            credentialsValid = await store.credentialsAreValid(site)
-            health = try? await store.health(site)
+            await readStatus()
+        }
+        // Atualizar no WP Admin passa-se no navegador: volta a ler quando o utilizador regressa à app.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await readStatus() }
         }
         .task(id: site.id) { await loadSpace() }
         .onChange(of: store.shares[site.id]?.url) { _, url in
@@ -412,6 +414,12 @@ struct SiteDetailView: View {
         } footer: {
             Text("Lido do próprio WordPress, sem contactar a internet: as atualizações são as que ele encontrou da última vez que verificou.")
         }
+    }
+
+    private func readStatus() async {
+        guard running else { return }
+        credentialsValid = await store.credentialsAreValid(site)
+        health = try? await store.health(site)
     }
 
     private func updatesRow(_ title: LocalizedStringKey, _ names: [String], checked: Bool) -> some View {
