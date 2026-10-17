@@ -164,7 +164,16 @@ enum Prefs {
 
     static func openInBrowser(_ url: URL) { open([url], with: defaults.string(forKey: browserKey)) }
     static func openInTerminal(_ folder: URL) { open([folder], with: defaults.string(forKey: terminalKey) ?? "com.apple.Terminal") }
-    static func openInEditor(_ folder: URL) { open([folder], with: preferredEditor?.bundleID) }
+    static func openInEditor(_ folder: URL) {
+        // Uma pasta aberta no Claude vai para o Cowork; este é o link do "New Claude Code Session Here" do Finder.
+        if preferredEditor?.bundleID == "com.anthropic.claudefordesktop",
+           let path = folder.path.addingPercentEncoding(withAllowedCharacters: .alphanumerics),
+           let url = URL(string: "claude://code/new?folder=\(path)") {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        open([folder], with: preferredEditor?.bundleID)
+    }
 
     // MARK: Abrir ao iniciar sessão
 
