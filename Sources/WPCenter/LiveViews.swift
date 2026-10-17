@@ -8,18 +8,21 @@ struct LiveSidebarSection: View {
     @EnvironmentObject var live: LiveStore
     let search: String
     let onConnect: () -> Void
+    @AppStorage(Prefs.liveSitesExpandedKey) private var expanded = true
 
     private var sites: [LiveSite] {
         search.isEmpty ? live.sites : live.sites.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.url.absoluteString.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
-        Section {
+        Section(isExpanded: $expanded) {
             Label("Todos os sites live", systemImage: "square.grid.2x2")
             .badge(live.sites.reduce(0) { $0 + (live.status[$1.id]?.updateCount ?? 0) })
             .tag(SidebarItem.liveOverview)
             ForEach(sites) { site in
                 LiveSiteRow(site: site, status: live.status[site.id], problem: live.problems[site.id], busy: live.busy.contains(site.id))
+                    // Contagem no emblema cinzento do sistema, como o Mail; a cor fica para problemas (triângulo laranja).
+                    .badge(live.busy.contains(site.id) || live.problems[site.id] != nil ? 0 : live.status[site.id]?.updateCount ?? 0)
                     .tag(SidebarItem.live(site.id))
                     .contextMenu { LiveSiteMenu(site: site) }
             }
@@ -54,8 +57,6 @@ private struct LiveSiteRow: View {
                 ProgressView().controlSize(.small)
             } else if problem != nil {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(problem?.text ?? "")
-            } else if let count = status?.updateCount, count > 0 {
-                UpdateBadge(count: count)
             }
         }
         .padding(.vertical, 3)
@@ -103,20 +104,6 @@ private struct LiveIcon: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
-    }
-}
-
-/// Número de atualizações em laranja, como os emblemas da App Store.
-private struct UpdateBadge: View {
-    let count: Int
-    var body: some View {
-        Text(String(count))
-            .font(.caption.weight(.semibold).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(Capsule().fill(.orange))
-            .help(count == 1 ? "1 atualização" : "\(count) atualizações")
     }
 }
 
@@ -492,7 +479,7 @@ struct LiveSiteDetailView: View {
         } header: {
             Text("Ligação")
         } footer: {
-            Text("A chave da ligação está no Porta-chaves do macOS e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso.")
+            Text("A chave da ligação fica guardada neste Mac e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso.")
         }
     }
 

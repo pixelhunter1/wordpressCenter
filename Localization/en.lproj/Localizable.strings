@@ -447,19 +447,17 @@
 
 /* Sites live */
 "%@ → %@" = "%@ → %@";
-"%lld atualizações" = "%lld updates";
 "%lld com atualizações" = "%lld with updates";
 "%lld com problemas" = "%lld with problems";
 "%lld plugins" = "%lld plugins";
 "%lld sites" = "%lld sites";
 "%lld temas" = "%lld themes";
-"1 atualização" = "1 update";
 "1 com atualizações" = "1 with updates";
 "1 com problemas" = "1 with problems";
 "1 plugin" = "1 plugin";
 "1 site" = "1 site";
 "1 tema" = "1 theme";
-"A chave da ligação está no Porta-chaves do macOS e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso." = "The connection key is in the macOS Keychain and only works with the site’s API: it can’t sign in to WP Admin. Revoke it in the profile to cut off access.";
+"A chave da ligação fica guardada neste Mac e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso." = "The connection key is stored on this Mac and only works with the site’s API: it can’t sign in to WP Admin. Revoke it in the profile to cut off access.";
 "A falar com o site…" = "Talking to the site…";
 "A ligação foi recusada: a palavra-passe de aplicação foi revogada ou o servidor não deixa passar a autenticação." = "The connection was refused: the application password was revoked or the server strips authentication.";
 "A ligação não foi aprovada no navegador." = "The connection wasn’t approved in the browser.";
@@ -506,7 +504,6 @@
 "Ligação" = "Connection";
 "Ligue os seus sites publicados para ver o estado de todos num só lugar e atualizar plugins, temas e o WordPress sem entrar em cada um." = "Connect your published sites to see them all in one place and update plugins, themes and WordPress without signing in to each one.";
 "Não foi possível encontrar um WordPress em %@. Confirme o endereço." = "Couldn’t find WordPress at %@. Check the address.";
-"Não foi possível guardar a ligação no Porta-chaves (erro %lld)." = "Couldn’t save the connection in the Keychain (error %lld).";
 "O plugin WP Center Ligação não está ativo neste site." = "The WP Center Ligação plugin isn’t active on this site.";
 "O plugin não está dentro da app. Volte a compilar com o build.sh." = "The plugin isn’t inside the app. Build again with build.sh.";
 "O servidor pede FTP: atualize no WP Admin" = "The server asks for FTP: update in WP Admin";

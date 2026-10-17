@@ -47,6 +47,9 @@ enum Prefs {
     static let exportDirectoryKey = "exportDirectory"
     static let askExportLocationKey = "askExportLocation"
     static let disabledSkillsKey = "disabledSkills"
+    /// Secções da barra lateral abertas ou recolhidas (com muitos sites, recolhe-se a que não se está a usar).
+    static let localSitesExpandedKey = "localSitesExpanded"
+    static let liveSitesExpandedKey = "liveSitesExpanded"
 
     private static var defaults: UserDefaults { .standard }
 

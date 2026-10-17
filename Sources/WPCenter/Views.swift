@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var siteToDuplicate: Site?
     /// Folha "Ligar site live"; o endereço vem preenchido ao ligar de novo um site.
     @State private var connectAddress: String?
+    @AppStorage(Prefs.localSitesExpandedKey) private var localExpanded = true
 
     private var filteredSites: [Site] {
         search.isEmpty ? store.sites : store.sites.filter { $0.name.localizedCaseInsensitiveContains(search) }
@@ -41,7 +42,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Section("Sites locais") {
+                Section("Sites locais", isExpanded: $localExpanded) {
                     ForEach(filteredSites) { site in
                         SiteRow(site: site, running: store.isRunning(site), shared: store.shares[site.id] != nil)
                             .tag(SidebarItem.site(site.id))
@@ -72,6 +73,9 @@ struct ContentView: View {
                     }
                 }
                 .padding(.bottom, 10)
+                // Com muitos sites a lista passa por baixo: sem fundo, as linhas viam-se através das Definições.
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
             }
         } detail: {
             if case .settings(let pane) = selection {

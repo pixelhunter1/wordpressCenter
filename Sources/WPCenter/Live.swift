@@ -5,7 +5,7 @@ import Security
 // MARK: - Sites live
 
 /// Um site WordPress publicado, ligado pelo plugin WP Center Ligação (Plugin/wpcenter-ligacao).
-/// A palavra-passe de aplicação não fica aqui: vive no Porta-chaves, com o `id` como conta.
+/// Guardado em live-sites.json (0600), como as palavras-passe dos sites locais no sites.json.
 struct LiveSite: Codable, Identifiable, Hashable {
     var id = UUID()
     var name: String
@@ -13,6 +13,8 @@ struct LiveSite: Codable, Identifiable, Hashable {
     /// Raiz da API: "https://site/wp-json" ou, sem ligações permanentes, "https://site/?rest_route=".
     var restBase: String
     var user: String
+    /// Palavra-passe de aplicação. Nil nas ligações antigas, que a tinham no Porta-chaves (ver `password(for:)`).
+    var password: String?
 
     var adminURL: URL { url.appendingPathComponent("wp-admin/") }
 }
@@ -87,7 +89,6 @@ final class LiveStore: ObservableObject {
     }
 
     private let file: URL
-    private var passwords: [LiveSite.ID: String] = [:] // evita voltar ao Porta-chaves a cada pedido
 
     init(storage: URL) {
         file = storage.appendingPathComponent("live-sites.json")
@@ -101,6 +102,18 @@ final class LiveStore: ObservableObject {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? encoder.encode(sites).write(to: file, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) // contém palavras-passe
+    }
+
+    /// Fora do Porta-chaves: numa app assinada ad hoc cada compilação é outra app para o macOS, que pedia a palavra-passe
+    /// do Mac por cada site a cada atualização.
+    private func password(for site: LiveSite) -> String? {
+        if let saved = site.password ?? sites.first(where: { $0.id == site.id })?.password { return saved }
+        // ponytail: migração das ligações feitas com o Porta-chaves (o macOS pede acesso uma vez por site). Apagar quando já não houver nenhuma.
+        guard let old = Keychain.get(site.id), let index = sites.firstIndex(where: { $0.id == site.id }) else { return nil }
+        sites[index].password = old
+        save()
+        return old
     }
 
     // MARK: Ligar
@@ -143,11 +156,9 @@ final class LiveStore: ObservableObject {
             pending?.failure = L("A ligação não foi aprovada no navegador.")
             return
         }
-        let site = LiveSite(name: request.name, url: request.home, restBase: request.restBase, user: user)
+        let site = LiveSite(name: request.name, url: request.home, restBase: request.restBase, user: user, password: password)
         Task {
             do {
-                try Keychain.set(password, for: site.id)
-                passwords[site.id] = password
                 // Confirma já a palavra-passe; sem o plugin a ligação fica guardada e o detalhe explica como instalá-lo.
                 do {
                     status[site.id] = try await call(site, "/wpcenter/v1/status")
@@ -162,7 +173,6 @@ final class LiveStore: ObservableObject {
                 pending = nil
                 justConnected = site.id
             } catch {
-                Keychain.delete(site.id)
                 pending?.failure = (error as? LiveProblem)?.text ?? error.localizedDescription
             }
         }
@@ -170,8 +180,6 @@ final class LiveStore: ObservableObject {
 
     /// Esquece o site neste Mac. A palavra-passe de aplicação continua no site até ser revogada no perfil.
     func disconnect(_ site: LiveSite) {
-        Keychain.delete(site.id)
-        passwords[site.id] = nil
         sites.removeAll { $0.id == site.id }
         status[site.id] = nil
         problems[site.id] = nil
@@ -238,8 +246,7 @@ final class LiveStore: ObservableObject {
 
     private func call(_ site: LiveSite, _ path: String, query: String? = nil, body: [String: Any]? = nil,
                       timeout: TimeInterval = 120) async throws -> LiveStatus {
-        guard let password = passwords[site.id] ?? Keychain.get(site.id) else { throw LiveProblem.unauthorized }
-        passwords[site.id] = password
+        guard let password = password(for: site) else { throw LiveProblem.unauthorized }
         let separator = site.restBase.contains("?") ? "&" : "?"
         guard let url = URL(string: site.restBase + path + (query.map { separator + $0 } ?? "")) else { throw LiveProblem.message(L("Endereço inválido.")) }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
@@ -310,31 +317,14 @@ final class LiveStore: ObservableObject {
 
 // MARK: - Porta-chaves
 
-/// Palavras-passe de aplicação dos sites live, no Porta-chaves de sessão do macOS.
+/// Só leitura, para migrar as ligações antigas: as chaves passaram para o live-sites.json.
 enum Keychain {
-    private static let service = "local.wpcenter.live"
-
-    private static func query(_ id: UUID) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
-    }
-
-    static func set(_ password: String, for id: UUID) throws {
-        delete(id)
-        var item = query(id)
-        item[kSecValueData as String] = Data(password.utf8)
-        item[kSecAttrLabel as String] = "WP Center (site live)"
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else { throw AppError("Não foi possível guardar a ligação no Porta-chaves (erro \(Int(status))).") }
-    }
-
     static func get(_ id: UUID) -> String? {
-        var item = query(id)
-        item[kSecReturnData as String] = true
-        item[kSecMatchLimit as String] = kSecMatchLimitOne
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "local.wpcenter.live",
+                                    kSecAttrAccount as String: id.uuidString, kSecReturnData as String: true,
+                                    kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
-
-    static func delete(_ id: UUID) { SecItemDelete(query(id) as CFDictionary) }
 }
