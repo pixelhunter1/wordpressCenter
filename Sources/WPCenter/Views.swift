@@ -319,14 +319,14 @@ struct SiteDetailView: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
             if running {
-                Button { store.stop(site) } label: { Label("Parar", systemImage: "stop.fill").labelStyle(.titleAndIcon) }
+                Button { store.stop(site) } label: { ToolbarLabel("Parar", symbol: "stop.fill", color: .red) }
                     .help("Parar o site (⌘R)")
             } else {
                 Button {
                     starting = true
                     Task { await store.start(site); starting = false }
                 } label: {
-                    Label("Iniciar", systemImage: "play.fill").labelStyle(.titleAndIcon)
+                    ToolbarLabel("Iniciar", symbol: "play.fill", color: .green)
                 }
                 .disabled(starting)
                 .help("Iniciar o site (⌘R)")
@@ -344,9 +344,11 @@ struct SiteDetailView: View {
             Button { Task { await store.openMail() } } label: { Label("Emails", systemImage: "envelope").labelStyle(.titleAndIcon) }
                 .help("Ver os emails enviados pelos sites, no Mailpit (⇧⌘E)")
             Button { showShare.toggle() } label: {
-                Label(store.shares[site.id] == nil ? "Partilhar" : "Partilhado",
-                      systemImage: store.shares[site.id] == nil ? "link" : "link.circle.fill")
-                    .labelStyle(.titleAndIcon)
+                if store.shares[site.id] == nil {
+                    Label("Partilhar", systemImage: "link").labelStyle(.titleAndIcon)
+                } else {
+                    ToolbarLabel("Partilhado", symbol: "link.circle.fill", color: .green)
+                }
             }
             .help(store.shares[site.id] == nil ? "Partilhar com o cliente por link" : "Partilhado por link")
             .popover(isPresented: $showShare, arrowEdge: .bottom) { SharePopover(site: site) }
@@ -858,6 +860,19 @@ extension View {
 /// Lido pelo VoiceOver quando algo muda sem mudar o foco (copiar, link pronto, exportação).
 @MainActor func announce(_ text: String.LocalizationValue) {
     AccessibilityNotification.Announcement(L(text)).post()
+}
+
+/// Botão da barra de ferramentas com o ícone a cores e o texto normal: o estado (iniciar, parar, partilhado) vê-se de relance.
+private struct ToolbarLabel: View {
+    let title: LocalizedStringKey
+    let symbol: String
+    let color: Color
+    init(_ title: LocalizedStringKey, symbol: String, color: Color) { self.title = title; self.symbol = symbol; self.color = color }
+
+    var body: some View {
+        Label { Text(title) } icon: { Image(systemName: symbol).foregroundStyle(color) }
+            .labelStyle(.titleAndIcon)
+    }
 }
 
 /// Estado de uma linha do cartão Estado: o ícone diz se está bem, o texto diz o quê (distinguível sem cores).
