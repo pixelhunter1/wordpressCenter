@@ -91,7 +91,7 @@ private struct LiveIcon: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-        AsyncImage(url: live.status[site.id]?.icon ?? site.url.appendingPathComponent("favicon.ico")) { phase in
+        AsyncImage(url: live.status[site.id]?.largeIcon ?? site.url.appendingPathComponent("favicon.ico")) { phase in
             if let image = phase.image {
                 shape.fill(.white)
                     .overlay(image.resizable().interpolation(.high).scaledToFit())
