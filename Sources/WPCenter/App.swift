@@ -337,8 +337,65 @@ enum SelfTest {
             store.stop(site)
 
             await wpcenterRoundTrip(store, original, in: tmp, check)
+            await wpvividImport(store, original, in: tmp, check)
         } catch {
             check(false, "importar site: \(error.localizedDescription)")
+        }
+    }
+
+    /// Um backup WPvivid feito à mão como o do servidor (zips por parte do site, repartidos em .part001/.part002):
+    /// escolhida só a primeira parte, entra tudo, com o endereço novo, e responde.
+    private static func wpvividImport(_ store: SiteStore, _ original: Site, in tmp: URL, _ check: (Bool, String) -> Void) async {
+        print("— Importar backup WPvivid")
+        do {
+            let fm = FileManager.default
+            let src = tmp.appendingPathComponent("vivid-src"), out = tmp.appendingPathComponent("vivid")
+            try fm.createDirectory(at: src, withIntermediateDirectories: true)
+            try fm.createDirectory(at: out, withIntermediateDirectories: true)
+            let prefix = "exemplo.pt_wpvivid-1a2b3c4d5e6f7_2026-10-17-10-00_backup_"
+            let tar = { (args: [String]) async throws in
+                let (status, output) = try await Runtime.exec(URL(fileURLWithPath: "/usr/bin/tar"), ["-a", "-cf"] + args)
+                if status != 0 { throw AppError(verbatim: output) }
+            }
+            let server = LocalServer(original.database)
+            let dump = ["mysqldump", "mariadb-dump"].compactMap { server.prefix?.appendingPathComponent("bin/\($0)") }
+                .first { fm.isExecutableFile(atPath: $0.path) }!
+            _ = try await Runtime.exec(dump, ["--no-defaults", "--socket=\(server.socket)", "-uroot",
+                                              "--result-file=\(src.path)/\(prefix)db.sql", original.database.name])
+            try await tar(["\(src.path)/\(prefix)db.zip", "-C", src.path, "\(prefix)db.sql"])
+            let content = original.folder.appendingPathComponent("wp-content").path
+            try await tar(["\(src.path)/\(prefix)core.zip", "--exclude", "./wp-content", "-C", original.folder.path, "."])
+            try await tar(["\(src.path)/\(prefix)plugin.zip", "-C", content, "plugins"])
+            try await tar(["\(src.path)/\(prefix)themes.zip", "-C", content, "themes"])
+            try await tar(["\(src.path)/\(prefix)content.zip", "--exclude", "./plugins", "--exclude", "./themes", "-C", content, "."])
+            try #"{"php_version":"8.4.1","home_url":"https://exemplo.pt"}"#
+                .write(to: src.appendingPathComponent("wpvivid_package_info.json"), atomically: true, encoding: .utf8)
+            let part1 = out.appendingPathComponent("\(prefix)all.part001.zip")
+            try await tar([part1.path, "-C", src.path, "wpvivid_package_info.json", "\(prefix)db.zip", "\(prefix)core.zip"])
+            try await tar([out.appendingPathComponent("\(prefix)all.part002.zip").path, "-C", src.path, "wpvivid_package_info.json",
+                           "\(prefix)plugin.zip", "\(prefix)themes.zip", "\(prefix)content.zip"])
+
+            let peek = ExportOrigin.peek(part1)
+            check(peek.origin == .wpvivid && peek.name == "exemplo.pt", "backup reconhecido como WPvivid (\(peek.name))")
+            let site = try await store.importSite(from: part1, name: "Selftest WPvivid", into: tmp.appendingPathComponent("vivid-importados"))
+            let plugins = { (dir: String) in Set((try? fm.contentsOfDirectory(atPath: dir + "/plugins")) ?? []) }
+            check(!plugins(content).isEmpty && plugins(site.path + "/wp-content") == plugins(content)
+                  && fm.fileExists(atPath: site.path + "/wp-content/mu-plugins") && !fm.fileExists(atPath: site.path + "/sql")
+                  && !fm.fileExists(atPath: site.path + "/wpvivid_package_info.json"),
+                  "as duas partes entram, cada zip no sítio certo e sem restos do backup")
+            let value = try await Runtime.php([Runtime.wpCli.path, "option", "get", "wpc_ida_volta"], cwd: site.folder)
+            check(value == "\(site.url.absoluteString)/x", "WPvivid: endereço trocado (\(value))")
+            await store.start(site)
+            var status = 0
+            for _ in 0..<40 where status != 200 {
+                try await Task.sleep(for: .milliseconds(250))
+                status = ((try? await URLSession.shared.data(from: site.url))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+            }
+            let valid = await store.credentialsAreValid(site)
+            check(status == 200 && valid == true, "WPvivid: site responde 200 e entra com a palavra-passe nova")
+            store.stop(site)
+        } catch {
+            check(false, "importar backup WPvivid: \(error.localizedDescription)")
         }
     }
 

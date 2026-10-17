@@ -76,7 +76,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button { showImport = true } label: { Label("Importar site…", systemImage: "square.and.arrow.down") }
-                    .help("Importar uma exportação da WP Center, do WordPress Studio ou do Local")
+                    .help("Importar uma exportação da WP Center, do WordPress Studio ou do Local, ou um backup do WPvivid")
             }
             ToolbarItem {
                 Button { showNewSite = true } label: { Label("Novo site", systemImage: "plus") }
@@ -1098,7 +1098,7 @@ struct NewSiteView: View {
 
 // MARK: - Importar
 
-/// Cria um site a partir de uma exportação da WP Center, do WordPress Studio ou do Local (escolhida ou largada na folha).
+/// Cria um site a partir de uma exportação da WP Center, do WordPress Studio, do Local ou de um backup WPvivid (escolhida ou largada na folha).
 struct ImportSitesView: View {
     @EnvironmentObject var store: SiteStore
     @Environment(\.dismiss) private var dismiss
@@ -1112,7 +1112,7 @@ struct ImportSitesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SheetHeader(title: "Importar site", subtitle: "Exportações da WP Center, do WordPress Studio ou do Local (.zip ou .tar.gz).")
+            SheetHeader(title: "Importar site", subtitle: "Exportações da WP Center, do WordPress Studio ou do Local, e backups do WPvivid (.zip ou .tar.gz).")
             Form {
                 Section {
                     LabeledContent("Ficheiro") {
@@ -1127,7 +1127,7 @@ struct ImportSitesView: View {
                     }
                     TextField("Nome", text: $name, prompt: Text("O meu site")).accessibilityLabel("Nome do site").disabled(importing)
                 } footer: {
-                    Text("Também pode largar o ficheiro aqui. Os sites da WP Center mantêm a base de dados; os do Studio e do Local passam para o MariaDB/MySQL. O administrador recebe uma palavra-passe nova.")
+                    Text("Também pode largar o ficheiro aqui. Num backup WPvivid em várias partes, escolha uma: as outras, na mesma pasta, entram também. Os sites da WP Center mantêm a base de dados; os outros passam para o MariaDB/MySQL. O administrador recebe uma palavra-passe nova.")
                 }
             }
             .formStyle(.grouped)

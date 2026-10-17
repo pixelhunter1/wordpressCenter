@@ -37,6 +37,7 @@
   - [4. Test emails with Mailpit](#4-test-emails-with-mailpit)
   - [5. Share the site with a client](#5-share-the-site-with-a-client)
   - [6. Export to cPanel](#6-export-to-cpanel)
+  - [7. Bring a live site from cPanel](#7-bring-a-live-site-from-cpanel)
 - [The `wpc` command-line tool](#the-wpc-command-line-tool)
 - [Settings](#settings)
 - [How it works under the hood](#how-it-works-under-the-hood)
@@ -69,6 +70,7 @@ database version and PHP version as your hosting, and one click produces a
 | **PHP per site** | PHP 8.1 to 8.5, following cPanel's EasyApache 4. PHP 8.4 is bundled; other versions are installed from Homebrew only when you ask. |
 | **Passwordless WP Admin** | Opens the dashboard already signed in, using a one-time, 60-second token that only works on your Mac. |
 | **Export to cPanel** | Drives the WPvivid plugin to produce a clean backup and fixes MySQL 8-only collations that MariaDB rejects. |
+| **Import from cPanel** | Turns a WPvivid backup made on the server into a local site in one step, with local URLs and a new admin password. Exports from Studio, Local and other WP Centers work too. |
 | **Email catcher** | Every email sent by WordPress lands in a bundled [Mailpit](https://mailpit.axllent.org/) inbox. Nothing leaves your Mac. |
 | **Share by link** | A temporary public HTTPS link (Cloudflare Quick Tunnel), no account needed, to show your work to a client. |
 | **`wpc` CLI** | Start, stop, inspect and export sites from Terminal, plus WP-CLI with each site's own PHP and database. |
@@ -223,6 +225,18 @@ The `wp-config.php` on cPanel is never replaced.
   <img src="Assets/screenshots/export.png" width="860" alt="Export to cPanel card with the list of what is left out of the export">
 </p>
 
+### 7. Bring a live site from cPanel
+
+1. On the server, in **WPvivid → Backup & Restore**, make a backup of the **database and files** and download it.
+   Large backups come in several parts (`….part001.zip`, `….part002.zip`); keep them in the same folder.
+2. In WP Center: **File → Import Site…** and choose the backup (any one part is enough). WP Center shows
+   **WPvivid** as the source and suggests the domain as the name.
+3. Click **Import**. WP Center creates the site with its own database on the managed MariaDB/MySQL, swaps the live
+   URLs for `http://localhost:<port>` and gives the first administrator a new password.
+
+The WPvivid plugin isn't needed on your Mac, and the live site is never touched. Exports from WordPress Studio, Local
+and another WP Center are imported the same way (`wpc import <file>` from Terminal).
+
 ---
 
 ## The `wpc` command-line tool
@@ -241,6 +255,7 @@ Usage: wpc [--path <site-folder>] <command>
   wpc export          WPvivid backup ready to restore on cPanel
                         --convert     fix MySQL 8 collations
                         --no-convert  keep them (MySQL 8 servers only)
+  wpc import <file>   Create a site from a WPvivid backup or a Studio, Local or WP Center export
   wpc wp <args…>      WP-CLI with the site's PHP and database
 ```
 

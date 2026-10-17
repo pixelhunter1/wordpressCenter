@@ -5,12 +5,13 @@ import Foundation
 ///   no SQLite a base de dados já vai em `site/wp-content/database`) e `wpcenter.json` (nome, PHP, motor e versão).
 /// - Exportar para o cPanel: backup WPvivid (em `Engine.swift`, `exportForCPanel`).
 /// - Importar: exportações da WP Center, do WordPress Studio (`wp-content/`, `wp-config.php`, `sql/*.sql`, `meta.json`; sem o
-///   núcleo do WordPress, usamos o incluído) e do Local (a pasta do site: `app/public/`, `app/sql/*.sql`, `local-site.json`).
-///   Os da WP Center mantêm o motor; os do Studio e do Local vão para o MariaDB/MySQL gerido.
+///   núcleo do WordPress, usamos o incluído), do Local (a pasta do site: `app/public/`, `app/sql/*.sql`, `local-site.json`)
+///   e backups do WPvivid feitos no servidor (zips dentro do zip, ver `unpackWPvivid`).
+///   Os da WP Center mantêm o motor; os outros vão para o MariaDB/MySQL gerido.
 
 /// De onde vem um ficheiro de exportação.
 enum ExportOrigin: String {
-    case wpcenter = "WP Center", studio = "WordPress Studio", local = "Local"
+    case wpcenter = "WP Center", studio = "WordPress Studio", local = "Local", wpvivid = "WPvivid"
 
     /// O ficheiro que identifica cada formato, na raiz do arquivo.
     var marker: String {
@@ -18,6 +19,7 @@ enum ExportOrigin: String {
         case .wpcenter: "wpcenter.json"
         case .studio: "meta.json"
         case .local: "local-site.json"
+        case .wpvivid: "wpvivid_package_info.json"
         }
     }
 
@@ -30,7 +32,7 @@ enum ExportOrigin: String {
         func entry(_ name: String) -> String? {
             entries.first { $0 == name || ($0.hasSuffix("/" + name) && $0.filter { $0 == "/" }.count == 1) }
         }
-        for origin in [ExportOrigin.wpcenter, .local, .studio] {
+        for origin in [ExportOrigin.wpcenter, .wpvivid, .local, .studio] {
             guard let marker = entry(origin.marker) else { continue }
             let json = Runtime.output("/usr/bin/unzip", ["-p", archive.path, marker])
             let name = (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])?["name"] as? String
@@ -116,12 +118,11 @@ extension SiteStore {
         let scratch = fm.temporaryDirectory.appendingPathComponent("wpcenter-import-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: scratch) } // só a pasta temporária criada aqui
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-        // O tar do macOS (bsdtar) abre .zip e .tar.gz.
-        let (status, out) = try await Runtime.exec(URL(fileURLWithPath: "/usr/bin/tar"), ["-xf", archive.path, "-C", scratch.path])
-        guard status == 0 else { throw AppError("Não foi possível abrir o ficheiro:\n\(String(out.suffix(600)))") }
+        try await Self.extract(archive, to: scratch)
+        try await Self.unpackWPvivid(archive, in: scratch)
         let content = try Self.exportContent(in: scratch)
 
-        // Da WP Center: o mesmo motor e versão, se estiverem instalados. Do Studio e do Local: MariaDB/MySQL.
+        // Da WP Center: o mesmo motor e versão, se estiverem instalados. Das outras origens: MariaDB/MySQL.
         var db = try database ?? content.database.flatMap { $0.engine == .sqlite || LocalServer($0).isInstalled ? $0 : nil }
             ?? Self.importDatabaseConfig()
         if db.engine.needsServer {
@@ -176,10 +177,47 @@ extension SiteStore {
     nonisolated static func siteName(for archive: URL) -> String {
         var name = archive.lastPathComponent
         for ext in [".zip", ".tar.gz", ".tgz"] where name.lowercased().hasSuffix(ext) { name.removeLast(ext.count) }
-        return name.replacing(#/[-_ ]?\d{4}-\d{2}-\d{2}.*$/#, with: "")
+        // WPvivid: `<domínio>_wpvivid-<id>_<data>_backup_all.part001.zip` → o domínio.
+        return name.replacing(#/(_wpvivid-[0-9a-f]+)?[-_ ]?\d{4}-\d{2}-\d{2}.*$/#, with: "")
     }
 
-    /// O servidor gerido para sites do Studio e do Local: o das preferências; se for SQLite ou não estiver instalado,
+    /// O tar do macOS (bsdtar) abre .zip e .tar.gz.
+    private static func extract(_ archive: URL, to dir: URL) async throws {
+        let (status, out) = try await Runtime.exec(URL(fileURLWithPath: "/usr/bin/tar"), ["-xf", archive.path, "-C", dir.path])
+        guard status == 0 else { throw AppError("Não foi possível abrir o ficheiro:\n\(String(out.suffix(600)))") }
+    }
+
+    /// Os backups do WPvivid trazem um zip por parte do site (`…_backup_core.zip`, `…_backup_db.zip`, `…_backup_plugin.zip`…),
+    /// às vezes repartidos por `….part001.zip`, `….part002.zip`. Junta as partes que estão ao lado da escolhida e abre cada
+    /// zip no sítio certo: `sql/` (a base de dados), `site/wp-content/` (plugins, temas, uploads, resto do wp-content) e `site/`
+    /// (o núcleo e outras pastas). Não faz nada noutros formatos.
+    private static func unpackWPvivid(_ archive: URL, in scratch: URL) async throws {
+        let fm = FileManager.default
+        let marker = ExportOrigin.wpvivid.marker
+        guard fm.fileExists(atPath: scratch.appendingPathComponent(marker).path) else { return }
+        let chosen = archive.lastPathComponent
+        if let match = chosen.firstMatch(of: #/^(.+\.part)\d+\.zip$/#) {
+            let siblings = (try? fm.contentsOfDirectory(at: archive.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
+            for part in siblings where part.lastPathComponent != chosen && part.lastPathComponent.hasPrefix(match.1)
+                && part.pathExtension.lowercased() == "zip" {
+                try await extract(part, to: scratch)
+            }
+        }
+        let inner = ((try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension.lowercased() == "zip" }
+        for zip in inner {
+            let file = zip.lastPathComponent
+            let dest = file.contains("_backup_db") ? "sql"
+                : ["_backup_plugin", "_backup_themes", "_backup_uploads", "_backup_content"].contains(where: file.contains) ? "site/wp-content"
+                : "site"
+            let target = scratch.appendingPathComponent(dest)
+            try fm.createDirectory(at: target, withIntermediateDirectories: true)
+            try await extract(zip, to: target)
+            try fm.removeItem(at: zip) // só o zip interior já aberto, dentro da pasta temporária
+            try? fm.removeItem(at: target.appendingPathComponent(marker)) // cada zip traz uma cópia
+        }
+    }
+
+    /// O servidor gerido para sites do Studio, do Local e do WPvivid: o das preferências; se for SQLite ou não estiver instalado,
     /// o primeiro instalado (MariaDB primeiro, como no cPanel).
     private static func importDatabaseConfig() throws -> DatabaseConfig {
         let candidates = [Prefs.defaultDatabase] + [DatabaseEngine.mariadb, .mysql].flatMap { engine in
@@ -217,16 +255,21 @@ extension SiteStore {
         }
         var queue = [dir], base: URL?
         for depth in 0..<3 {
-            base = queue.first { exists($0, ExportOrigin.wpcenter.marker) || exists($0, "wp-content") || exists($0, "app/public/wp-content") }
+            base = queue.first {
+                exists($0, ExportOrigin.wpcenter.marker) || exists($0, ExportOrigin.wpvivid.marker) || exists($0, "wp-content")
+                    || exists($0, "app/public/wp-content")
+            }
             if base != nil || depth == 2 { break }
             queue = queue.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] }
                 .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && $0.lastPathComponent != "__MACOSX" }
         }
         guard let base else {
-            throw AppError("Este ficheiro não parece uma exportação da WP Center, do WordPress Studio ou do Local (não tem wp-content).")
+            throw AppError("Este ficheiro não parece uma exportação da WP Center, do WordPress Studio ou do Local, nem um backup do WPvivid (não tem wp-content).")
         }
 
-        let origin: ExportOrigin = exists(base, ExportOrigin.wpcenter.marker) ? .wpcenter : exists(base, "app/public/wp-content") ? .local : .studio
+        let origin: ExportOrigin = exists(base, ExportOrigin.wpcenter.marker) ? .wpcenter
+            : exists(base, ExportOrigin.wpvivid.marker) ? .wpvivid
+            : exists(base, "app/public/wp-content") ? .local : .studio
         let wordpress: URL, sql: [URL], php: String?
         var database: DatabaseConfig?
         switch origin {
@@ -246,6 +289,13 @@ extension SiteStore {
             wordpress = base
             sql = sqlFiles(in: base.appendingPathComponent("sql"))
             php = json(base.appendingPathComponent(origin.marker))?["phpVersion"] as? String
+        case .wpvivid: // já aberto por `unpackWPvivid`
+            wordpress = base.appendingPathComponent("site")
+            sql = sqlFiles(in: base.appendingPathComponent("sql"))
+            php = json(base.appendingPathComponent(origin.marker))?["php_version"] as? String
+        }
+        guard fm.fileExists(atPath: wordpress.appendingPathComponent("wp-content").path) else {
+            throw AppError("O ficheiro não traz os ficheiros do site (wp-content), só a base de dados. Faça um backup completo.")
         }
         guard database?.engine == .sqlite || !sql.isEmpty else {
             throw AppError("O ficheiro não traz a base de dados (.sql). Exporte o site completo.")
