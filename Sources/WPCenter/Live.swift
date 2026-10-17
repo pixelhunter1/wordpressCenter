@@ -33,7 +33,7 @@ struct LiveStatus: Decodable {
 
     let plugin: String
     let name: String
-    /// Ícone do site a 128 px (plugin 1.1+); sem ele usa-se o /favicon.ico, que o WordPress redireciona para o mesmo ícone.
+    /// Ícone do site a 512 px, o recorte original do WordPress (plugin 1.1.1+; o 1.1 dava 128 px); sem ele usa-se o /favicon.ico, que o WordPress redireciona para o mesmo ícone.
     let icon: URL?
     let wordpress: String
     let php: String

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Center Ligação
  * Description: Deixa a app WP Center (Mac) ver o estado deste site e atualizar plugins, temas e o WordPress. Não tem definições: a ligação aprova-se no navegador e revoga-se em Utilizadores → Perfil → Palavras-passe de aplicação.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: WP Center
@@ -95,7 +95,7 @@ function wpcenter_ligacao_status( WP_REST_Request $request ) {
 		'plugin'    => $data['Version'],
 		'name'      => get_bloginfo( 'name' ),
 		'url'       => home_url(),
-		'icon'      => get_site_icon_url( 128 ) ? get_site_icon_url( 128 ) : null,
+		'icon'      => get_site_icon_url( 512 ) ? get_site_icon_url( 512 ) : null,
 		'wordpress' => get_bloginfo( 'version' ),
 		'php'       => PHP_VERSION,
 		'core'      => $core,
