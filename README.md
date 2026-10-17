@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>Local WordPress sites on your Mac, built to migrate cleanly to cPanel.</strong><br>
-  A native macOS app with no accounts, no cloud and no telemetry. The only network target is <code>localhost</code>.
+  A native macOS app with no accounts, no cloud and no telemetry. It only talks to <code>localhost</code>,
+  unless you share a site or connect your live sites.
 </p>
 
 <p align="center">
@@ -38,6 +39,7 @@
   - [5. Share the site with a client](#5-share-the-site-with-a-client)
   - [6. Export to cPanel](#6-export-to-cpanel)
   - [7. Bring a live site from cPanel](#7-bring-a-live-site-from-cpanel)
+  - [8. Manage your live sites](#8-manage-your-live-sites)
 - [The `wpc` command-line tool](#the-wpc-command-line-tool)
 - [Settings](#settings)
 - [How it works under the hood](#how-it-works-under-the-hood)
@@ -70,9 +72,12 @@ database version and PHP version as your hosting, and one click produces a
 | **PHP per site** | PHP 8.1 to 8.5, following cPanel's EasyApache 4. PHP 8.4 is bundled; other versions are installed from Homebrew only when you ask. |
 | **Passwordless WP Admin** | Opens the dashboard already signed in, using a one-time, 60-second token that only works on your Mac. |
 | **Export to cPanel** | Drives the WPvivid plugin to produce a clean backup and fixes MySQL 8-only collations that MariaDB rejects. |
+| **Status and storage** | Each site shows the WordPress, plugin and theme updates WordPress already knows about, whether debug mode is on, and how much disk space uploads, the database, plugins and WPvivid backups use, with one click to delete older backups. |
+| **Move between Macs** | Export a whole site (files, database, PHP and engine) into one `.zip` and import it into WP Center on another Mac. |
 | **Duplicate** | A full copy of a site (files and database) with its own address and password, to try things without touching the original. |
 | **Import from cPanel** | Turns a WPvivid backup made on the server into a local site in one step, with local URLs and a new admin password. Exports from Studio, Local and other WP Centers work too. |
 | **Email catcher** | Every email sent by WordPress lands in a bundled [Mailpit](https://mailpit.axllent.org/) inbox. Nothing leaves your Mac. |
+| **Live sites** | Connect your published WordPress sites to see their versions and pending updates in one table, update plugins, themes and WordPress on one or every site, and open WP Admin already signed in. |
 | **Share by link** | A temporary public HTTPS link (Cloudflare Quick Tunnel), no account needed, to show your work to a client. |
 | **`wpc` CLI** | Start, stop, inspect and export sites from Terminal, plus WP-CLI with each site's own PHP and database. |
 | **Ready for AI agents** | Each site gets `AGENTS.md`, `CLAUDE.md`, an always up-to-date `WPCENTER.md` and WordPress skills, and `wpc` gives agents a site summary, one-time sign-in links, PHP logs, caught emails and cache clearing. Claude, ChatGPT (Codex), Cursor, Windsurf and other AI editors can open a site from the app. |
@@ -238,6 +243,38 @@ The `wp-config.php` on cPanel is never replaced.
 The WPvivid plugin isn't needed on your Mac, and the live site is never touched. Exports from WordPress Studio, Local
 and another WP Center are imported the same way (`wpc import <file>` from Terminal).
 
+To move a site to WP Center on another Mac, use **For another WP Center** in the site's **Export** card
+(or `wpc export --wpcenter`). It writes one `.zip` with the files, the database, the PHP version and the database
+engine; import it there with **File → Import Site…**. Passwords are not included.
+
+### 8. Manage your live sites
+
+The **Live Sites** section of the sidebar keeps your published WordPress sites next to the local ones, without
+mixing them up. It needs a small plugin on each site, **WP Center Ligação**, which ships inside the app.
+
+1. Click **+** next to **Live Sites** (or **Connect Live Site…**) and type the site's address, for example `shop.com`.
+2. If the plugin isn't there yet, click **Save the Plugin…**. On the site, open **Plugins → Add New → Upload Plugin**,
+   upload `wpcenter-ligacao.zip` and activate it. To update it later, upload the new zip and choose
+   **Replace current with uploaded**.
+3. WP Center opens the site's own **Authorize Application** page in your browser. Approve it as an administrator.
+   The browser hands the result back to the app, and the site appears in the sidebar.
+
+Once connected:
+
+| Where | What you can do |
+|---|---|
+| **All Live Sites** | One table with every site's WordPress and PHP versions and pending updates. **Update All** updates plugins and themes on every site; **Check** asks every site for new updates. |
+| **A site's detail** | Plugins and themes with their versions and available updates, WordPress core updates, debug mode, and whether the server can update itself or asks for FTP. |
+| **WP Admin** | Opens the dashboard **already signed in** (plugin 1.2 or later). Older plugins open the normal login page. |
+| **Disconnect** | **Revoke on the Site…** opens the site's profile, where you revoke the "WP Center" application password; **Disconnect from This Mac…** forgets the site in WP Center. |
+
+Updates run through WordPress's own updater on each site, the same one as the **Update Now** button. Make a backup
+first if the site has no recent one.
+
+> [!NOTE]
+> Live sites must use HTTPS. Connecting uses WordPress's built-in **application passwords**: your admin password never
+> reaches the app, and some security plugins (e.g. Wordfence) must allow application passwords.
+
 ---
 
 ## The `wpc` command-line tool
@@ -261,6 +298,7 @@ Usage: wpc [--path <site-folder>] <command>
   wpc export          WPvivid backup ready to restore on cPanel
                         --convert     fix MySQL 8 collations
                         --no-convert  keep them (MySQL 8 servers only)
+                        --wpcenter    the whole site in one .zip, for another WP Center
   wpc duplicate       Full copy of the site (files and database); --name "Name"
   wpc import <file>   Create a site from a WPvivid backup or a Studio, Local or WP Center export
   wpc wp <args…>      WP-CLI with the site's PHP and database
@@ -297,6 +335,8 @@ running after the command exits, and the app and `wpc` can stop each other's ser
 │      ├──────► mailpit              SMTP :1025 · UI :8025                   │
 │      └──────► cloudflared          only while a share link is open         │
 │                                                                            │
+│  LiveStore ──► https://<live-site>/wp-json/wpcenter/v1   (connected sites) │
+│                                                                            │
 │  Runtime/*.php ─ helpers run with `wp eval-file`, inputs via env vars      │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -310,16 +350,25 @@ running after the command exits, and the app and `wpc` can stop each other's ser
   never contacts wordpress.org mid-request. You can still update manually from the dashboard.
 - **Helper scripts.** `Runtime/*.php` run inside the site through WP-CLI. They read their inputs from environment
   variables, never argv, so secrets don't show up in `ps`, and they return one `WPCENTER_RESULT {json}` line.
-- **State.** `~/Library/Application Support/WP Center/` holds `sites.json` (mode `0600`), per-site logs and database data.
+- **Live sites.** The WP Center Ligação plugin (`Plugin/wpcenter-ligacao/`) adds three admin-only REST routes:
+  `status` (versions, plugins and themes with their updates), `update` (runs WordPress's own upgraders) and `login`
+  (a one-time sign-in code). The app authenticates with an application password created when you approve the
+  connection in the browser.
+- **State.** `~/Library/Application Support/WP Center/` holds `sites.json` and `live-sites.json` (both mode `0600`),
+  per-site logs and database data.
 
 ## Privacy and security
 
-- **No external services.** No accounts, analytics, crash reporting or update checks. Sharing by link is the only
-  outbound connection, and only while a link is open.
+- **No external services.** No accounts, analytics, crash reporting or update checks. The only outbound connections
+  are a share link, while it is open, and the live sites you connect yourself.
 - **Automatic sign-in** uses a one-time token stored only as a SHA-256 hash. It is valid for 60 seconds and accepted
   only in the `local` environment, only from loopback and never through a share tunnel.
+- **Live sites** are reached over HTTPS only, with a WordPress application password that you approve in the browser and
+  can revoke at any time in the site's profile. Your admin password never reaches the app. The plugin's routes only
+  answer administrators, and its WP Admin sign-in code is single-use, valid for 60 seconds and stored only as a
+  SHA-256 hash.
 - **Managed databases** give root access only through a local Unix socket, with no password and no network access.
-- **Credentials** are stored in `sites.json` with owner-only permissions and passed to helpers through environment variables.
+- **Credentials** are stored in `sites.json` and `live-sites.json` with owner-only permissions and passed to helpers through environment variables.
 
 ## Project structure
 
@@ -329,9 +378,13 @@ Sources/WPCenter/
   Engine.swift       SiteStore: sites, servers, PHP versions, export, sharing, Mailpit
   Database.swift     database engines and the official cPanel version table
   CLI.swift          the wpc command
+  Transfer.swift     import from Studio, Local, WPvivid and WP Center, export for another WP Center, duplicate
+  Live.swift         LiveStore: connected live sites and their REST API
+  LiveViews.swift    the Live Sites views
   Preferences.swift  settings, login item, browser/editor/terminal choice
   Views.swift        all SwiftUI views
 Runtime/             router, PHP helpers, mu-plugins and AI-agent skills copied into the app
+Plugin/              WP Center Ligação, the plugin for live sites (zipped into the app by build.sh)
 Localization/        en.lproj (English text), pt-PT.lproj and pt.lproj
 Assets/, Scripts/    logo and app icon generator
 build.sh             builds dist/WP Center.app
@@ -359,6 +412,9 @@ stop behaviour. Exit code `0` means every check passed.
 | **Credentials stopped working after a restore** | Use **Restore Access** in the WordPress Access card. |
 | **"The WPvivid plugin is not active on this site"** | Install and activate WPvivid Backup before exporting. |
 | **`wpc: command not found`** | Turn on the command in Settings → Advanced, add `~/.local/bin` to your `PATH` and open a new Terminal window. |
+| **"This site doesn't accept application passwords"** | Make sure the site uses HTTPS and that no security plugin (e.g. Wordfence) turned application passwords off. |
+| **"The WP Center Ligação plugin isn't active on this site"** | Use **Save the Plugin…**, upload it in **Plugins → Add New → Upload Plugin** on the site, activate it and click **Check**. |
+| **Live site WP Admin opens the login page** | Update the site's WP Center Ligação plugin to 1.2 or later. |
 | **A new build doesn't seem to apply** | Quit the running app first: `osascript -e 'tell application id "local.wpcenter" to quit'`. |
 
 ## Acknowledgements
