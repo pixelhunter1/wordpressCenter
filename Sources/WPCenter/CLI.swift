@@ -34,6 +34,7 @@ enum CLI {
       wpc admin              Abre o wp-admin já com sessão iniciada
       wpc export             Backup WPvivid pronto a restaurar no cPanel (--convert: corrige colações do MySQL 8)
       wpc export --wpcenter  O site completo num .zip, para importar noutra WP Center
+      wpc duplicate          Cria uma cópia completa do site (ficheiros e base de dados); --name "Nome"
       wpc import <ficheiro>  Cria um site a partir de uma exportação da WP Center, do Studio, do Local ou de um backup WPvivid; --name "Nome"
       wpc wp <args…>         WP-CLI com o PHP e a base de dados do site
 
@@ -166,6 +167,23 @@ enum CLI {
                 return 1
             } catch {
                 fail(error.localizedDescription)
+                return 1
+            }
+
+        case "duplicate":
+            var name = L("\(site.name) (cópia)")
+            if let i = args.firstIndex(of: "--name"), i + 1 < args.count { name = args[i + 1] }
+            print(L("A duplicar \(site.name)…"))
+            fflush(stdout)
+            do {
+                let copy = try await store.duplicate(site, name: name)
+                print(L("Pronto: \(copy.name) em \(copy.url.absoluteString)  —  \(copy.path)"))
+                print(L("Utilizador: \(copy.adminUser)  Palavra-passe: \(copy.adminPassword)"))
+                store.stopAll() // os servidores de base de dados arrancados só para duplicar
+                return 0
+            } catch {
+                fail(error.localizedDescription)
+                store.stopAll()
                 return 1
             }
 

@@ -422,6 +422,12 @@ enum SelfTest {
             let valid = await store.credentialsAreValid(copy)
             check(status == 200 && valid == true, "\(label): cópia responde 200 e entra com a palavra-passe nova")
             store.stop(copy)
+
+            let dup = try await store.duplicate(original, name: "\(original.name) Duplicado")
+            let dupValue = try await Runtime.php([Runtime.wpCli.path, "option", "get", "wpc_ida_volta"], cwd: dup.folder)
+            check(dup.folder.deletingLastPathComponent().standardizedFileURL == original.folder.deletingLastPathComponent().standardizedFileURL
+                  && dup.database.engine == original.database.engine && dupValue == "\(dup.url.absoluteString)/x",
+                  "\(label): duplicar cria a cópia ao lado do original, com o mesmo motor e endereço novo")
         } catch {
             check(false, "\(label): exportar/importar entre WP Centers: \(error.localizedDescription)")
         }

@@ -70,6 +70,7 @@ database version and PHP version as your hosting, and one click produces a
 | **PHP per site** | PHP 8.1 to 8.5, following cPanel's EasyApache 4. PHP 8.4 is bundled; other versions are installed from Homebrew only when you ask. |
 | **Passwordless WP Admin** | Opens the dashboard already signed in, using a one-time, 60-second token that only works on your Mac. |
 | **Export to cPanel** | Drives the WPvivid plugin to produce a clean backup and fixes MySQL 8-only collations that MariaDB rejects. |
+| **Duplicate** | A full copy of a site (files and database) with its own address and password, to try things without touching the original. |
 | **Import from cPanel** | Turns a WPvivid backup made on the server into a local site in one step, with local URLs and a new admin password. Exports from Studio, Local and other WP Centers work too. |
 | **Email catcher** | Every email sent by WordPress lands in a bundled [Mailpit](https://mailpit.axllent.org/) inbox. Nothing leaves your Mac. |
 | **Share by link** | A temporary public HTTPS link (Cloudflare Quick Tunnel), no account needed, to show your work to a client. |
@@ -255,6 +256,7 @@ Usage: wpc [--path <site-folder>] <command>
   wpc export          WPvivid backup ready to restore on cPanel
                         --convert     fix MySQL 8 collations
                         --no-convert  keep them (MySQL 8 servers only)
+  wpc duplicate       Full copy of the site (files and database); --name "Name"
   wpc import <file>   Create a site from a WPvivid backup or a Studio, Local or WP Center export
   wpc wp <args…>      WP-CLI with the site's PHP and database
 ```

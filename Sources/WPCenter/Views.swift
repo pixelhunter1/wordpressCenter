@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var showCPanel = false
     @State private var siteToDelete: Site?
     @State private var siteToRename: Site?
+    @State private var siteToDuplicate: Site?
 
     private var filteredSites: [Site] {
         search.isEmpty ? store.sites : store.sites.filter { $0.name.localizedCaseInsensitiveContains(search) }
@@ -32,7 +33,9 @@ struct ContentView: View {
                     ForEach(filteredSites) { site in
                         SiteRow(site: site, running: store.isRunning(site), shared: store.shares[site.id] != nil)
                             .tag(SidebarItem.site(site.id))
-                            .contextMenu { SiteMenu(site: site, onRename: { siteToRename = site }) { siteToDelete = site } }
+                            .contextMenu {
+                                SiteMenu(site: site, onRename: { siteToRename = site }, onDuplicate: { siteToDuplicate = site }) { siteToDelete = site }
+                            }
                     }
                 }
             }
@@ -61,7 +64,8 @@ struct ContentView: View {
             if case .settings(let pane) = selection {
                 SettingsPaneView(pane: pane)
             } else if case .site(let id) = selection, let site = store.sites.first(where: { $0.id == id }) {
-                SiteDetailView(site: site, onRename: { siteToRename = site }) { siteToDelete = site }.id(site.id)
+                SiteDetailView(site: site, onRename: { siteToRename = site }, onDuplicate: { siteToDuplicate = site }) { siteToDelete = site }
+                    .id(site.id)
             } else {
                 ContentUnavailableView {
                     Label(store.sites.isEmpty ? "Ainda não há sites" : "Selecione um site", systemImage: "globe")
@@ -92,6 +96,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showCPanel) { CPanelView() }
         .sheet(item: $siteToRename) { RenameSiteView(site: $0) }
+        .sheet(item: $siteToDuplicate) { DuplicateSiteView(site: $0) { selection = .site($0.id) } }
         .confirmationDialog("Apagar \"\(siteToDelete?.name ?? "")\"?", isPresented: Binding(
             get: { siteToDelete != nil }, set: { if !$0 { siteToDelete = nil } }
         ), presenting: siteToDelete) { site in
@@ -172,6 +177,7 @@ private struct SiteMenu: View {
     @EnvironmentObject var store: SiteStore
     let site: Site
     let onRename: () -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -194,6 +200,7 @@ private struct SiteMenu: View {
         }
         Divider()
         Button("Mudar nome…", action: onRename)
+        Button("Duplicar…", action: onDuplicate)
         Button("Apagar site…", role: .destructive, action: onDelete)
     }
 }
@@ -248,6 +255,7 @@ struct SiteDetailView: View {
     @EnvironmentObject var store: SiteStore
     let site: Site
     let onRename: () -> Void
+    let onDuplicate: () -> Void
     let onDelete: () -> Void
 
     @State private var starting = false
@@ -333,7 +341,7 @@ struct SiteDetailView: View {
             .help(store.shares[site.id] == nil ? "Partilhar com o cliente por link" : "Partilhado por link")
             .popover(isPresented: $showShare, arrowEdge: .bottom) { SharePopover(site: site) }
             Menu {
-                SiteMenu(site: site, onRename: onRename, onDelete: onDelete)
+                SiteMenu(site: site, onRename: onRename, onDuplicate: onDuplicate, onDelete: onDelete)
             } label: {
                 Label("Mais", systemImage: "ellipsis.circle")
             }
@@ -788,6 +796,79 @@ private struct CopyButton: View {
         .buttonStyle(.borderless)
         .help("Copiar")
         .accessibilityLabel("Copiar \(what)")
+    }
+}
+
+// MARK: - Duplicar
+
+/// Cópia completa do site (ficheiros e base de dados), ao lado do original, com outro nome.
+struct DuplicateSiteView: View {
+    @EnvironmentObject var store: SiteStore
+    @Environment(\.dismiss) private var dismiss
+    let site: Site
+    let onDuplicated: (Site) -> Void
+
+    @State private var name = ""
+    @State private var working = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                SiteIcon(size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Duplicar site").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                    Text(site.name).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            TextField("Nome da cópia", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .onSubmit(duplicate)
+                .disabled(working)
+            Text("Copia os ficheiros e a base de dados. A cópia tem endereço e palavra-passe próprios; o original não muda.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let error {
+                ErrorText(error).font(.callout)
+            }
+            HStack {
+                Spacer()
+                Button("Cancelar") { dismiss() }.keyboardShortcut(.cancelAction).disabled(working)
+                Button(action: duplicate) {
+                    if working {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("A duplicar…") }
+                    } else {
+                        Text("Duplicar")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(working || SiteStore.slug(name).isEmpty)
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(width: 440)
+        .interactiveDismissDisabled(working)
+        .onAppear { name = L("\(site.name) (cópia)") }
+    }
+
+    private func duplicate() {
+        guard !working, !SiteStore.slug(name).isEmpty else { return }
+        working = true
+        error = nil
+        Task {
+            do {
+                let copy = try await store.duplicate(site, name: name)
+                announce("Site duplicado")
+                onDuplicated(copy)
+                dismiss()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            working = false
+        }
     }
 }
 

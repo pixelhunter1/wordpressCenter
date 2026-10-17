@@ -113,9 +113,15 @@ enum Prefs {
 
     // MARK: Aplicações
 
+    /// Só aparecem os instalados. Os de IA abrem a pasta como projeto (o Claude no separador Code, o ChatGPT no Codex).
     static let knownEditors = [
         ExternalApp(bundleID: "com.microsoft.VSCode", name: "Visual Studio Code"),
         ExternalApp(bundleID: "com.todesktop.230313mzl4w4u92", name: "Cursor"),
+        ExternalApp(bundleID: "com.exafunction.windsurf", name: "Windsurf"),
+        ExternalApp(bundleID: "com.google.antigravity", name: "Antigravity"),
+        ExternalApp(bundleID: "dev.kiro.desktop", name: "Kiro"),
+        ExternalApp(bundleID: "com.anthropic.claudefordesktop", name: "Claude"),
+        ExternalApp(bundleID: "com.openai.codex", name: "ChatGPT (Codex)"),
         ExternalApp(bundleID: "dev.zed.Zed", name: "Zed"),
         ExternalApp(bundleID: "com.sublimetext.4", name: "Sublime Text"),
         ExternalApp(bundleID: "com.jetbrains.PhpStorm", name: "PhpStorm"),

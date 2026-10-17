@@ -102,6 +102,17 @@ extension SiteStore {
         guard status == 0 else { throw AppError("Não foi possível exportar a base de dados:\n\(String(out.suffix(600)))") }
     }
 
+    // MARK: Duplicar
+
+    /// Cópia completa com outro nome, ao lado do original: mesmo motor, versão e PHP, endereço e palavra-passe novos.
+    // ponytail: passa por um .zip na pasta temporária; num site de vários GB, copiar a pasta e a base de dados diretamente seria mais rápido.
+    func duplicate(_ site: Site, name: String) async throws -> Site {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-duplicate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) } // só a pasta temporária criada aqui
+        let file = try await exportForWPCenter(site, to: scratch)
+        return try await importSite(from: file, name: name, into: site.folder.deletingLastPathComponent())
+    }
+
     // MARK: Importar
 
     /// Lê o ficheiro, cria o site em `directory`/<slug do nome> e regista-o. Devolve o site novo.
