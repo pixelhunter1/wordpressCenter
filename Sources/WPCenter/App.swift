@@ -175,7 +175,11 @@ enum SelfTest {
                 let server = LocalServer(DatabaseConfig(engine: engine, targetVersion: v))
                 guard server.isInstalled else { continue }
                 // Um servidor já ativo pertence à app em uso: não lhe criamos bases de dados de teste.
-                guard SiteStore.isPortFree(server.port) else { print("— \(server.title): já está a correr, ignorado"); continue }
+                guard SiteStore.isPortFree(server.port) else {
+                    print("— \(server.title): já está a correr, ignorado")
+                    check((try? await store.ensureRunning(server)) == nil, "o servidor \(server.title) da app não é reutilizado pelo teste")
+                    continue
+                }
                 configs.append(DatabaseConfig(engine: engine, targetVersion: v))
             }
         }

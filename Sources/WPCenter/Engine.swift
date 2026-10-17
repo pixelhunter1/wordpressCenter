@@ -796,14 +796,19 @@ final class SiteStore: ObservableObject {
 
     /// Inicializa (na primeira vez) e arranca o servidor; não faz nada se já estiver a correr.
     func ensureRunning(_ server: LocalServer) async throws {
-        if !Self.isPortFree(server.port), FileManager.default.fileExists(atPath: server.socket) { return }
+        let dir = storage.appendingPathComponent("Databases/\(server.formula)")
+        let pidFile = dir.appendingPathComponent("server.pid")
+        // A porta e o socket são fixos por versão: só reutilizamos o servidor se for desta pasta de estado (o pid-file
+        // está vivo). Sem isto o --selftest criava as suas bases de dados no servidor da app, se este arrancasse a meio.
+        if !Self.isPortFree(server.port), FileManager.default.fileExists(atPath: server.socket),
+           let pid = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap({ pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
+           kill(pid, 0) == 0 { return }
         guard server.isInstalled, let daemon = server.daemon, let prefix = server.prefix else {
             throw AppError("\(server.title) não está instalado neste Mac.")
         }
         guard Self.isPortFree(server.port) else {
             throw AppError("A porta \(server.port), reservada para \(server.title), está ocupada por outra aplicação.")
         }
-        let dir = storage.appendingPathComponent("Databases/\(server.formula)")
         let data = dir.appendingPathComponent("data")
         if !FileManager.default.fileExists(atPath: data.path) {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
