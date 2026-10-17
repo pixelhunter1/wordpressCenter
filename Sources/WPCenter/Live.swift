@@ -33,7 +33,7 @@ struct LiveStatus: Decodable {
 
     let plugin: String
     let name: String
-    /// Ícone do site a 512 px, o recorte original do WordPress (plugin 1.1.1+; o 1.1 dava 128 px); sem ele usa-se o /favicon.ico, que o WordPress redireciona para o mesmo ícone.
+    /// Ícone do site (plugin 1.1+; ver `largeIcon`); sem ele usa-se o /favicon.ico, que o WordPress redireciona para o mesmo ícone.
     let icon: URL?
     let wordpress: String
     let php: String
@@ -196,6 +196,17 @@ final class LiveStore: ObservableObject {
 
     // MARK: Estado e atualizações
 
+    /// Abre o WP Admin já com sessão iniciada, com um código de uso único que o plugin (1.2+) dá pela API.
+    /// Com um plugin mais antigo, ou se o pedido falhar, abre o login normal.
+    func openAdmin(_ site: LiveSite) async {
+        struct Login: Decodable { let code: String }
+        var url = site.adminURL
+        if let login: Login = try? await call(site, "/wpcenter/v1/login", body: [:], timeout: 20) {
+            url = url.appending(queryItems: [URLQueryItem(name: "wpcenter_entrar", value: login.code)])
+        }
+        Prefs.openInBrowser(url)
+    }
+
     func refresh(_ site: LiveSite, force: Bool = false) async {
         await run(site) { try await self.call(site, "/wpcenter/v1/status", query: force ? "force=1" : nil) }
     }
@@ -252,8 +263,8 @@ final class LiveStore: ObservableObject {
 
     // MARK: Rede
 
-    private func call(_ site: LiveSite, _ path: String, query: String? = nil, body: [String: Any]? = nil,
-                      timeout: TimeInterval = 120) async throws -> LiveStatus {
+    private func call<T: Decodable>(_ site: LiveSite, _ path: String, query: String? = nil, body: [String: Any]? = nil,
+                      timeout: TimeInterval = 120) async throws -> T {
         guard let password = password(for: site) else { throw LiveProblem.unauthorized }
         let separator = site.restBase.contains("?") ? "&" : "?"
         guard let url = URL(string: site.restBase + path + (query.map { separator + $0 } ?? "")) else { throw LiveProblem.message(L("Endereço inválido.")) }
@@ -270,7 +281,7 @@ final class LiveStore: ObservableObject {
         if code == 200 {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .secondsSince1970
-            do { return try decoder.decode(LiveStatus.self, from: data) } catch {
+            do { return try decoder.decode(T.self, from: data) } catch {
                 throw LiveProblem.message(L("O site respondeu algo inesperado. Confirme que o plugin WP Center Ligação está atualizado."))
             }
         }

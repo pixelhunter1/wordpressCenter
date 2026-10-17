@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: WP Center Ligação
- * Description: Deixa a app WP Center (Mac) ver o estado deste site e atualizar plugins, temas e o WordPress. Não tem definições: a ligação aprova-se no navegador e revoga-se em Utilizadores → Perfil → Palavras-passe de aplicação.
- * Version: 1.1.1
+ * Description: Deixa a app WP Center (Mac) ver o estado deste site, atualizar plugins, temas e o WordPress, e abrir o WP Admin já com sessão iniciada. Não tem definições: a ligação aprova-se no navegador e revoga-se em Utilizadores → Perfil → Palavras-passe de aplicação.
+ * Version: 1.2.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: WP Center
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// Duas rotas da API, só para quem pode atualizar plugins (administradores). A autenticação é a do WordPress:
+// Três rotas da API, só para quem pode atualizar plugins (administradores). A autenticação é a do WordPress:
 // a Palavra-passe de aplicação "WP Center", criada quando o utilizador aprova a ligação no navegador.
 add_action(
 	'rest_api_init',
@@ -37,7 +37,54 @@ add_action(
 				'permission_callback' => $allowed,
 			)
 		);
+		register_rest_route(
+			'wpcenter/v1',
+			'/login',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'wpcenter_ligacao_login_code',
+				'permission_callback' => $allowed,
+			)
+		);
 	}
+);
+
+/**
+ * Código para o botão WP Admin da app: de uso único, válido 60 segundos e guardado só como hash SHA-256,
+ * como a entrada automática dos sites locais. A app abre /wp-admin/?wpcenter_entrar=<código>.
+ */
+function wpcenter_ligacao_login_code() {
+	if ( ! is_ssl() && 'local' !== wp_get_environment_type() ) {
+		return new WP_Error( 'wpcenter_https', 'A entrada automática só funciona por HTTPS.', array( 'status' => 403 ) );
+	}
+	$code = bin2hex( random_bytes( 32 ) );
+	set_transient( 'wpcenter_entrar_' . hash( 'sha256', $code ), get_current_user_id(), 60 );
+	return array( 'code' => $code );
+}
+
+add_action(
+	'init',
+	function () {
+		if ( empty( $_GET['wpcenter_entrar'] ) || ! is_string( $_GET['wpcenter_entrar'] ) ) {
+			return;
+		}
+		$key     = 'wpcenter_entrar_' . hash( 'sha256', wp_unslash( $_GET['wpcenter_entrar'] ) );
+		$user_id = (int) get_transient( $key );
+		delete_transient( $key ); // uso único, mesmo que algo falhe a seguir
+
+		$user = $user_id ? get_user_by( 'id', $user_id ) : false;
+		if ( ! $user || ! user_can( $user, 'update_plugins' ) ) {
+			wp_safe_redirect( wp_login_url( admin_url() ) );
+			exit;
+		}
+
+		wp_set_current_user( $user->ID );
+		wp_set_auth_cookie( $user->ID, false, is_ssl() );
+		do_action( 'wp_login', $user->user_login, $user );
+		wp_safe_redirect( remove_query_arg( 'wpcenter_entrar' ) ); // sem o código no URL nem no histórico
+		exit;
+	},
+	1
 );
 
 function wpcenter_ligacao_load_admin() {

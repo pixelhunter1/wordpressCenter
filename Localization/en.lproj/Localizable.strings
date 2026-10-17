@@ -457,7 +457,7 @@
 "1 plugin" = "1 plugin";
 "1 site" = "1 site";
 "1 tema" = "1 theme";
-"A chave da ligação fica guardada neste Mac e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso." = "The connection key is stored on this Mac and only works with the site’s API: it can’t sign in to WP Admin. Revoke it in the profile to cut off access.";
+"A chave da ligação fica guardada neste Mac. Serve para a API do site e, com o plugin 1.2, para o WP Admin entrar já com sessão iniciada, com um código de uso único válido 60 segundos. Revogue-a no perfil para cortar o acesso." = "The connection key is stored on this Mac. It works with the site’s API and, with plugin 1.2, lets WP Admin open already signed in, using a one-time code valid for 60 seconds. Revoke it in the profile to cut off access.";
 "A falar com o site…" = "Talking to the site…";
 "A ligação foi recusada: a palavra-passe de aplicação foi revogada ou o servidor não deixa passar a autenticação." = "The connection was refused: the application password was revoked or the server strips authentication.";
 "A ligação não foi aprovada no navegador." = "The connection wasn’t approved in the browser.";

@@ -72,7 +72,7 @@ private struct LiveSiteMenu: View {
 
     var body: some View {
         Button("Abrir site") { Prefs.openInBrowser(site.url) }
-        Button("Abrir WP Admin") { Prefs.openInBrowser(site.adminURL) }
+        Button("Abrir WP Admin") { Task { await live.openAdmin(site) } }
         Divider()
         Button("Verificar agora") { Task { await live.refresh(site, force: true) } }
             .disabled(live.busy.contains(site.id))
@@ -312,7 +312,7 @@ struct LiveSiteDetailView: View {
         ToolbarItemGroup {
             Button { Prefs.openInBrowser(site.url) } label: { Label("Abrir site", systemImage: "safari").labelStyle(.titleAndIcon) }
                 .help("Abrir o site no navegador")
-            Button { Prefs.openInBrowser(site.adminURL) } label: {
+            Button { Task { await live.openAdmin(site) } } label: {
                 Label("WP Admin", systemImage: "gauge.with.dots.needle.33percent").labelStyle(.titleAndIcon)
             }
             .help("Abrir o painel do site no navegador")
@@ -479,7 +479,7 @@ struct LiveSiteDetailView: View {
         } header: {
             Text("Ligação")
         } footer: {
-            Text("A chave da ligação fica guardada neste Mac e só serve para a API do site: não entra no WP Admin. Revogue-a no perfil para cortar o acesso.")
+            Text("A chave da ligação fica guardada neste Mac. Serve para a API do site e, com o plugin 1.2, para o WP Admin entrar já com sessão iniciada, com um código de uso único válido 60 segundos. Revogue-a no perfil para cortar o acesso.")
         }
     }
 
