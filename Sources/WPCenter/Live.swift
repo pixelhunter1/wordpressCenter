@@ -33,7 +33,7 @@ struct LiveStatus: Decodable {
 
     let plugin: String
     let name: String
-    /// Ícone do site (plugin 1.1+; ver `largeIcon`); sem ele usa-se o /favicon.ico, que o WordPress redireciona para o mesmo ícone.
+    /// Ícone do site (plugin 1.1+). A app não o mostra: usa o símbolo do WordPress em todos (ver `LiveIcon`).
     let icon: URL?
     let wordpress: String
     let php: String
@@ -48,14 +48,6 @@ struct LiveStatus: Decodable {
     var pluginUpdates: [Item] { plugins.filter { $0.update != nil } }
     var themeUpdates: [Item] { themes.filter { $0.update != nil } }
     var updateCount: Int { pluginUpdates.count + themeUpdates.count + (core == nil ? 0 : 1) }
-
-    /// O ícone em tamanho original: o plugin 1.1 dá um recorte (`cropped-x-150x150.png`), e o
-    /// WordPress guarda sempre o ícone do site a 512 px como `cropped-x.png`, ao lado dos recortes.
-    var largeIcon: URL? {
-        guard let icon, icon.lastPathComponent.hasPrefix("cropped-") else { return icon }
-        let name = icon.lastPathComponent.replacing(#/-\d+x\d+(?=\.\w+$)/#, with: "")
-        return icon.deletingLastPathComponent().appendingPathComponent(name)
-    }
 }
 
 /// Porque é que um site não respondeu, com o texto a mostrar.

@@ -47,7 +47,7 @@ private struct LiveSiteRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            LiveIcon(site: site, size: 28)
+            LiveIcon(size: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(site.name).fontWeight(.medium).lineLimit(1)
                 Text(site.url.host() ?? site.url.absoluteString).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -83,27 +83,23 @@ private struct LiveSiteMenu: View {
     }
 }
 
-/// O ícone do próprio site (Identidade do site); enquanto carrega, ou se não houver, um globo azul.
+/// O símbolo do WordPress (o do WordPress incluído na app) em branco sobre azul, igual em todos os sites live.
 private struct LiveIcon: View {
-    @EnvironmentObject var live: LiveStore
-    let site: LiveSite
     var size: CGFloat
+    static let logo = NSImage(contentsOf: Runtime.root.appendingPathComponent("wordpress/wp-admin/images/wordpress-logo-white.svg"))
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-        AsyncImage(url: live.status[site.id]?.largeIcon ?? site.url.appendingPathComponent("favicon.ico")) { phase in
-            if let image = phase.image {
-                shape.fill(.white)
-                    .overlay(image.resizable().interpolation(.high).scaledToFit())
-                    .clipShape(shape)
-                    .overlay(shape.strokeBorder(Color.black.opacity(0.1), lineWidth: 0.5))
-            } else {
-                shape.fill(LinearGradient(colors: [Color.blue.opacity(0.85), Color.blue], startPoint: .top, endPoint: .bottom))
-                    .overlay(Image(systemName: "globe").font(.system(size: size * 0.55, weight: .medium)).foregroundStyle(.white))
+        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+            .fill(LinearGradient(colors: [Color.blue.opacity(0.85), Color.blue], startPoint: .top, endPoint: .bottom))
+            .overlay {
+                if let logo = Self.logo {
+                    Image(nsImage: logo).resizable().interpolation(.high).frame(width: size * 0.68, height: size * 0.68)
+                } else {
+                    Image(systemName: "globe").font(.system(size: size * 0.55, weight: .medium)).foregroundStyle(.white)
+                }
             }
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 
@@ -186,7 +182,7 @@ struct LiveOverviewView: View {
         Table(live.sites, selection: $selection) {
             TableColumn("Site") { site in
                 HStack(spacing: 8) {
-                    LiveIcon(site: site, size: 20)
+                    LiveIcon(size: 20)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(site.name).fontWeight(.medium)
                         Text(site.url.host() ?? "").font(.caption).foregroundStyle(.secondary)
@@ -346,7 +342,7 @@ struct LiveSiteDetailView: View {
 
     private var identity: some View {
         HStack(spacing: 14) {
-            LiveIcon(site: site, size: 48)
+            LiveIcon(size: 48)
             VStack(alignment: .leading, spacing: 3) {
                 Text(site.name).font(.title3.weight(.semibold)).lineLimit(1)
                 Link(site.url.absoluteString, destination: site.url)
