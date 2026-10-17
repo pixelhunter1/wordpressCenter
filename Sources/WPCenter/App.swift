@@ -218,6 +218,25 @@ enum SelfTest {
             check(skillExists("/.claude/skills/wp-rest-api/SKILL.md") && skillExists("/.agents/skills/wp-rest-api/SKILL.md")
                   && !skillExists("/.claude/skills/rank-me-up") && !skillExists("/.agents/skills/rank-me-up"),
                   "habilidade desligada sai do site; as ativas ficam")
+            let agents = site.folder.appendingPathComponent("AGENTS.md"), guide = site.folder.appendingPathComponent("WPCENTER.md")
+            try "editado".write(to: agents, atomically: true, encoding: .utf8)
+            try "antigo".write(to: guide, atomically: true, encoding: .utf8)
+            store.writeAgentFiles(for: site)
+            check((try? String(contentsOf: agents, encoding: .utf8)) == "editado"
+                  && (try? String(contentsOf: guide, encoding: .utf8))?.contains("wpc login-url") == true,
+                  "WPCENTER.md é reescrito pela app; o AGENTS.md editado fica")
+
+            // Ferramentas para agentes (wpc context / wpc flush).
+            let tool = { (action: String) in
+                try await Runtime.php([Runtime.wpCli.path, "eval-file", Runtime.tools.path], cwd: site.folder,
+                                      env: ["WPCENTER_ACTION": action, "WPCENTER_JSON": "1"], using: site.phpExecutable())
+            }
+            // Aqui stdout e stderr vêm juntos (no PHP 8.5 o WP-CLI avisa antes do JSON); o `wpc` separa-os.
+            let output = try await tool("context")
+            let context = try JSONSerialization.jsonObject(with: Data(output[(output.range(of: "{\n")?.lowerBound ?? output.startIndex)...].utf8)) as? [String: Any]
+            check(context?["url"] as? String == site.url.absoluteString && context?["plugins"] != nil && context?["content"] != nil,
+                  "wpc context descreve o site")
+            check(try await tool("flush").contains("transients"), "wpc flush limpa as caches")
             await store.start(site, detached: true) // como o `wpc start`
             var status = 0, body = ""
             for _ in 0..<40 where status != 200 {

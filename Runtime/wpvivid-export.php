@@ -34,8 +34,9 @@ if ( is_file( WP_CONTENT_DIR . '/db.php' ) && false !== strpos( (string) file_ge
 }
 
 // Ficheiros na raiz do site para agentes de IA (WP Center e Studio). Um AGENTS.md dentro de um tema continua incluído.
+// O .mcp.json tem o endereço localhost e uma palavra-passe de aplicação deste Mac.
 $wpcenter_root       = str_replace( '\\', '/', rtrim( ABSPATH, '/\\' ) );
-$wpcenter_root_files = array( 'AGENTS.md', 'CLAUDE.md', 'WPCENTER.md', 'STUDIO.md' );
+$wpcenter_root_files = array( 'AGENTS.md', 'CLAUDE.md', 'WPCENTER.md', 'STUDIO.md', '.mcp.json' );
 
 // O WPvivid junta raiz e nome com "/" mesmo quando a raiz já termina em "/" (…/site//AGENTS.md): daí o "/+".
 add_filter(

@@ -67,6 +67,7 @@ enum Runtime {
     static var mailpit: URL { root.appendingPathComponent("mailpit") }
     static var sharePlugin: URL { root.appendingPathComponent("wpcenter-share.php") }
     static var updatesPlugin: URL { root.appendingPathComponent("wpcenter-updates.php") }
+    static var tools: URL { root.appendingPathComponent("wpcenter-tools.php") }
     static var cloudflared: URL { root.appendingPathComponent("cloudflared") }
 
     static var appVersion: String { appBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
@@ -286,7 +287,7 @@ final class SiteStore: ObservableObject {
 
     let storage: URL
     private var file: URL { storage.appendingPathComponent("sites.json") }
-    private var logs: URL { storage.appendingPathComponent("Logs") }
+    var logs: URL { storage.appendingPathComponent("Logs") }
 
     init(storage: URL) {
         self.storage = storage
@@ -386,12 +387,16 @@ final class SiteStore: ObservableObject {
     }
 
     /// Instruções para agentes de IA (Claude Code, Codex…) dentro do site, como o Studio faz — mas a apontar para `wpc`.
-    /// Só cria o que falta: nunca substitui ficheiros que o utilizador tenha editado.
+    /// Só cria o que falta (nunca substitui o que o utilizador editou), exceto o WPCENTER.md: é da app e é reescrito
+    /// quando muda (comandos novos, outro endereço depois de importar ou duplicar).
     func writeAgentFiles(for site: Site) {
         let fm = FileManager.default
-        func write(_ name: String, _ text: String) {
+        func write(_ name: String, _ text: String, replace: Bool = false) {
             let url = site.folder.appendingPathComponent(name)
-            if !fm.fileExists(atPath: url.path) { try? text.write(to: url, atomically: true, encoding: .utf8) }
+            let current = try? String(contentsOf: url, encoding: .utf8)
+            if replace ? current != text : !fm.fileExists(atPath: url.path) {
+                try? text.write(to: url, atomically: true, encoding: .utf8)
+            }
         }
         let db = site.database
         let dbLine = db.engine.needsServer
@@ -410,6 +415,8 @@ final class SiteStore: ObservableObject {
         """)
         write("CLAUDE.md", "@AGENTS.md\n")
         write("WPCENTER.md", """
+        > Gerido pelo WP Center: a app reescreve este ficheiro. Instruções próprias vão no AGENTS.md.
+
         ## IMPORTANTE: WP-CLI no WP Center
 
         Quando uma skill ou documentação usar comandos `wp`, corre-os SEMPRE com o prefixo `wpc`:
@@ -428,13 +435,23 @@ final class SiteStore: ObservableObject {
 
         ## Fluxo de trabalho
 
-        1. `wpc status` — URL, credenciais, versões de PHP/WordPress e base de dados
-        2. `wpc start` se o site estiver parado (`wpc stop` para parar)
-        3. Edita ficheiros em `wp-content/themes/` ou `wp-content/plugins/`
-        4. `wpc wp …` para ativar temas/plugins, limpar caches, etc.
-        5. Verifica o resultado no URL do site
+        1. `wpc context` — tema, construtor, plugins ativos, conteúdo e WooCommerce: lê-o antes de mexer no site
+        2. `wpc status` — URL, credenciais, versões de PHP/WordPress e base de dados
+        3. `wpc start` se o site estiver parado (`wpc stop` para parar)
+        4. Edita ficheiros em `wp-content/themes/` ou `wp-content/plugins/`
+        5. `wpc wp …` para ativar temas/plugins, criar conteúdo, etc.
+        6. `wpc flush` se uma alteração não aparecer (caches de objetos, transients, ligações permanentes, Elementor, plugins de cache)
+        7. Verifica o resultado no URL do site
 
         Os comandos usam o site da pasta atual; a partir de outra pasta usa `wpc --path <pasta-do-site> …`.
+
+        ## Verificar o trabalho
+
+        - `wpc login-url` — link de entrada no wp-admin já com sessão iniciada, de uso único e válido 60 s (inicia o site se for preciso). Abre-o no navegador que controlas para ver ou testar o painel.
+        - `wpc logs` — erros recentes do PHP e do `wp-content/debug.log`. Para registar tudo: `wpc wp config set WP_DEBUG true --raw`, `wpc wp config set WP_DEBUG_LOG true --raw` e `wpc wp config set WP_DEBUG_DISPLAY false --raw`; no fim volta a pôr `WP_DEBUG` a `false`.
+        - `wpc mail` — emails enviados pelos sites (formulários, encomendas), apanhados neste Mac; `wpc mail <ID>` mostra o texto de um.
+        - `wpc duplicate --name "…"` — cópia completa do site (ficheiros e base de dados) antes de uma alteração arriscada.
+        - `--json` em `wpc status`, `wpc list`, `wpc context` e `wpc mail` dá um resultado fácil de ler num script.
 
         ## Este site
 
@@ -442,7 +459,7 @@ final class SiteStore: ObservableObject {
         - Base de dados: \(dbLine)
         - Produção: o site vai ser migrado para um servidor cPanel com o plugin WPvivid. `wpc export` cria o backup pronto a restaurar lá. Não faças alterações que dependam deste ambiente local (URLs `localhost` escritas à mão, caminhos absolutos do Mac).
 
-        """)
+        """, replace: true)
         syncSkills(for: site)
     }
 

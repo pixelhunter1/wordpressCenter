@@ -75,7 +75,7 @@ database version and PHP version as your hosting, and one click produces a
 | **Email catcher** | Every email sent by WordPress lands in a bundled [Mailpit](https://mailpit.axllent.org/) inbox. Nothing leaves your Mac. |
 | **Share by link** | A temporary public HTTPS link (Cloudflare Quick Tunnel), no account needed, to show your work to a client. |
 | **`wpc` CLI** | Start, stop, inspect and export sites from Terminal, plus WP-CLI with each site's own PHP and database. |
-| **Ready for AI agents** | Each site gets `AGENTS.md`, `CLAUDE.md` and WordPress skills so Claude Code, Codex and other agents work correctly. |
+| **Ready for AI agents** | Each site gets `AGENTS.md`, `CLAUDE.md`, an always up-to-date `WPCENTER.md` and WordPress skills, and `wpc` gives agents a site summary, one-time sign-in links, PHP logs, caught emails and cache clearing. Claude, ChatGPT (Codex), Cursor, Windsurf and other AI editors can open a site from the app. |
 | **Menu bar and login item** | Control your sites from the menu bar and resume them automatically when you log in. |
 | **English and Portuguese** | Follows your Mac's language. |
 
@@ -248,11 +248,16 @@ app. Make sure `~/.local/bin` is in your `PATH`, then open a new Terminal window
 ```text
 Usage: wpc [--path <site-folder>] <command>
 
-  wpc list            List the sites
-  wpc status          Status, address, credentials and database of the site
+  wpc list            List the sites (--json)
+  wpc status          Status, address, credentials and database of the site (--json)
+  wpc context         Summary for agents: theme, builder, plugins, content, WooCommerce (--json)
   wpc start           Start the site (and the database server, if needed)
   wpc stop            Stop the site
   wpc admin           Open wp-admin already signed in
+  wpc login-url       One-time wp-admin sign-in link, valid for 60 s (starts the site if needed)
+  wpc flush           Clear caches: object cache, transients, permalinks, Elementor, cache plugins
+  wpc logs [lines]    Recent PHP errors and wp-content/debug.log
+  wpc mail [ID]       Latest emails caught by Mailpit; with an ID, shows one as text (--json)
   wpc export          WPvivid backup ready to restore on cPanel
                         --convert     fix MySQL 8 collations
                         --no-convert  keep them (MySQL 8 servers only)
