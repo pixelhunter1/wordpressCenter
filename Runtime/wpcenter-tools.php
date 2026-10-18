@@ -195,11 +195,18 @@ function wpcenter_tools_health() {
 		$theme         = wp_get_theme( $slug );
 		$theme_names[] = $theme->exists() ? $theme->get( 'Name' ) : $slug;
 	}
+	// Também lido das mesmas caches (o campo translations de cada uma).
+	require_once ABSPATH . 'wp-admin/includes/update.php';
+	$translation_names = array();
+	foreach ( wp_get_translation_updates() as $pack ) {
+		$translation_names[] = ( 'core' === $pack->type ? 'WordPress' : $pack->slug ) . ' (' . $pack->language . ')';
+	}
 	echo 'WPCENTER_RESULT ' . wp_json_encode(
 		array(
-			'core'    => $available,
-			'plugins' => $plugin_names,
-			'themes'  => $theme_names,
+			'core'         => $available,
+			'plugins'      => $plugin_names,
+			'themes'       => $theme_names,
+			'translations' => $translation_names,
 			'checked' => isset( $plugins->last_checked ),
 			'debug'   => defined( 'WP_DEBUG' ) && WP_DEBUG,
 		)

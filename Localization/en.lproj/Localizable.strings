@@ -473,9 +473,9 @@
 "Atualizar 1 item" = "Update 1 Item";
 "Atualizar o WordPress" = "Update WordPress";
 "Atualizar o WordPress para %@?" = "Update WordPress to %@?";
-"Atualizar os plugins e temas de todos os sites" = "Update the plugins and themes of every site";
-"Atualizar os plugins e temas de todos os sites?" = "Update the plugins and themes of every site?";
-"Atualizar todos os plugins e temas deste site" = "Update every plugin and theme on this site";
+"Atualizar os plugins, temas e traduções de todos os sites" = "Update the plugins, themes and translations of every site";
+"Atualizar os plugins, temas e traduções de todos os sites?" = "Update the plugins, themes and translations of every site?";
+"Atualizar todos os plugins, temas e traduções deste site" = "Update every plugin, theme and translation on this site";
 "Atualizar tudo" = "Update All";
 "Atualizar tudo (%lld)" = "Update All (%lld)";
 "Atualizar…" = "Update…";
@@ -533,3 +533,8 @@
 "Endereço do site" = "Site address";
 "À espera da aprovação no navegador…" = "Waiting for approval in the browser…";
 "Última atualização" = "Last Update";
+"Atualizadas" = "Up to date";
+"Traduções" = "Translations";
+"traduções" = "translations";
+"%@: atualize à mão uma vez" = "%@: update it by hand once";
+"Guarde o zip e carregue-o em Plugins → Adicionar → Carregar plugin, escolhendo \"Substituir o atual pelo carregado\". A partir da versão 1.3 a app atualiza o plugin sozinha." = "Save the zip and upload it in Plugins → Add New → Upload Plugin, choosing \"Replace current with uploaded\". From version 1.3 on, the app updates the plugin by itself.";

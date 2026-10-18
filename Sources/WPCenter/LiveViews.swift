@@ -117,7 +117,7 @@ struct LiveOverviewView: View {
 
     private var pendingUpdates: Int {
         live.sites.reduce(0) { total, site in
-            total + (live.status[site.id].map { $0.pluginUpdates.count + $0.themeUpdates.count } ?? 0)
+            total + (live.status[site.id]?.itemUpdates ?? 0)
         }
     }
     private var refreshing: Bool { !live.busy.isEmpty }
@@ -151,12 +151,12 @@ struct LiveOverviewView: View {
                                  symbol: "arrow.up.circle.fill", color: pendingUpdates > 0 ? .orange : .secondary)
                 }
                 .disabled(updatingAll || refreshing || pendingUpdates == 0)
-                .help("Atualizar os plugins e temas de todos os sites")
+                .help("Atualizar os plugins, temas e traduções de todos os sites")
                 Button(action: onConnect) { Label("Ligar site", systemImage: "plus").labelStyle(.titleAndIcon) }
                     .help("Ligar mais um site live")
             }
         }
-        .confirmationDialog("Atualizar os plugins e temas de todos os sites?", isPresented: $confirmUpdateAll) {
+        .confirmationDialog("Atualizar os plugins, temas e traduções de todos os sites?", isPresented: $confirmUpdateAll) {
             Button(pendingUpdates == 1 ? "Atualizar 1 item" : "Atualizar \(pendingUpdates) itens") {
                 updatingAll = true
                 Task { await live.updateAll(); updatingAll = false }
@@ -246,6 +246,7 @@ private struct LiveStateCell: View {
         let plugins = status.pluginUpdates.count, themes = status.themeUpdates.count
         if plugins > 0 { parts.append(plugins == 1 ? L("1 plugin") : L("\(plugins) plugins")) }
         if themes > 0 { parts.append(themes == 1 ? L("1 tema") : L("\(themes) temas")) }
+        if status.hasTranslations { parts.append(L("traduções")) }
         return parts.joined(separator: ", ")
     }
 }
@@ -318,13 +319,13 @@ struct LiveSiteDetailView: View {
             .disabled(busy)
             .help("Perguntar ao site se há atualizações novas")
             Button {
-                Task { await update(plugins: status?.pluginUpdates.compactMap(\.file) ?? [], themes: status?.themeUpdates.compactMap(\.slug) ?? []) }
+                Task { await updateAll() }
             } label: {
                 ToolbarLabel(itemUpdates > 0 ? "Atualizar tudo (\(itemUpdates))" : "Atualizar tudo",
                              symbol: "arrow.up.circle.fill", color: itemUpdates > 0 ? .orange : .secondary)
             }
             .disabled(busy || itemUpdates == 0 || status?.writable == false)
-            .help("Atualizar todos os plugins e temas deste site")
+            .help("Atualizar todos os plugins, temas e traduções deste site")
             Menu {
                 LiveSiteMenu(site: site)
                 Divider()
@@ -336,7 +337,7 @@ struct LiveSiteDetailView: View {
         }
     }
 
-    private var itemUpdates: Int { (status?.pluginUpdates.count ?? 0) + (status?.themeUpdates.count ?? 0) }
+    private var itemUpdates: Int { status?.itemUpdates ?? 0 }
 
     // MARK: Secções
 
@@ -403,6 +404,18 @@ struct LiveSiteDetailView: View {
                     StatusText("Atualizado", .ok)
                 }
             }
+            if let translations = status.translations {
+                LabeledContent("Traduções") {
+                    if translations > 0 {
+                        HStack {
+                            StatusText(translations == 1 ? "1 por atualizar" : "\(translations) por atualizar", .update)
+                            Button("Atualizar") { Task { await update(translations: true) } }.disabled(busy || !status.writable)
+                        }
+                    } else {
+                        StatusText("Atualizadas", .ok)
+                    }
+                }
+            }
             LabeledContent("PHP", value: status.php)
             LabeledContent("Modo debug") {
                 if status.debug { StatusText("Ligado num site publicado", .warning) } else { StatusText("Desligado", .ok) }
@@ -462,9 +475,22 @@ struct LiveSiteDetailView: View {
     private var connectionSection: some View {
         Section {
             LabeledContent("Utilizador", value: site.user)
-            if let version = status?.plugin { LabeledContent("Plugin WP Center Ligação", value: version) }
+            if let status {
+                LabeledContent("Plugin WP Center Ligação") {
+                    if LiveStore.isOutdated(status) && !LiveStore.canSelfUpdate(status) {
+                        StatusText("\(status.plugin): atualize à mão uma vez", .warning)
+                    } else {
+                        Text(status.plugin)
+                    }
+                }
+                if LiveStore.isOutdated(status) && !LiveStore.canSelfUpdate(status) {
+                    Text("Guarde o zip e carregue-o em Plugins → Adicionar → Carregar plugin, escolhendo \"Substituir o atual pelo carregado\". A partir da versão 1.3 a app atualiza o plugin sozinha.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 Spacer()
+                if let status, LiveStore.isOutdated(status) && !LiveStore.canSelfUpdate(status) { PluginButton() }
                 Button("Revogar no site…") {
                     var profile = URLComponents(url: site.adminURL.appendingPathComponent("profile.php"), resolvingAgainstBaseURL: false)
                     profile?.fragment = "application-passwords-section"
@@ -481,13 +507,20 @@ struct LiveSiteDetailView: View {
 
     // MARK: Ações
 
-    private func update(plugins: [String] = [], themes: [String] = [], core: Bool = false) async {
-        lastErrors = await live.update(site, plugins: plugins, themes: themes, core: core)
+    private func update(plugins: [String] = [], themes: [String] = [], core: Bool = false, translations: Bool = false) async {
+        lastErrors = await live.update(site, plugins: plugins, themes: themes, core: core, translations: translations)
+        announce(lastErrors.isEmpty ? "Atualização concluída" : "Atualização com erros")
+    }
+
+    private func updateAll() async {
+        guard let status else { return }
+        lastErrors = await live.updateItems(site, status)
         announce(lastErrors.isEmpty ? "Atualização concluída" : "Atualização com erros")
     }
 
     private func name(of item: String) -> String {
         if item == "wordpress" { return "WordPress" }
+        if item == "translations" { return L("Traduções") }
         return (status?.plugins ?? []).first { $0.file == item }?.name ?? (status?.themes ?? []).first { $0.slug == item }?.name ?? item
     }
 

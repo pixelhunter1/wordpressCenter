@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: WP Center Ligação
- * Description: Deixa a app WP Center (Mac) ver o estado deste site, atualizar plugins, temas e o WordPress, e abrir o WP Admin já com sessão iniciada. Não tem definições: a ligação aprova-se no navegador e revoga-se em Utilizadores → Perfil → Palavras-passe de aplicação.
- * Version: 1.2.0
+ * Description: Deixa a app WP Center (Mac) ver o estado deste site, atualizar plugins, temas, traduções e o WordPress, e abrir o WP Admin já com sessão iniciada. Não tem definições: a ligação aprova-se no navegador e revoga-se em Utilizadores → Perfil → Palavras-passe de aplicação.
+ * Version: 1.3.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Author: WP Center
@@ -11,7 +11,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-// Três rotas da API, só para quem pode atualizar plugins (administradores). A autenticação é a do WordPress:
+// Rotas da API, só para quem pode atualizar plugins (administradores). A autenticação é a do WordPress:
 // a Palavra-passe de aplicação "WP Center", criada quando o utilizador aprova a ligação no navegador.
 add_action(
 	'rest_api_init',
@@ -35,6 +35,17 @@ add_action(
 				'methods'             => 'POST',
 				'callback'            => 'wpcenter_ligacao_update',
 				'permission_callback' => $allowed,
+			)
+		);
+		register_rest_route(
+			'wpcenter/v1',
+			'/self-update',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'wpcenter_ligacao_self_update',
+				'permission_callback' => function () {
+					return current_user_can( 'install_plugins' );
+				},
 			)
 		);
 		register_rest_route(
@@ -86,6 +97,46 @@ add_action(
 	},
 	1
 );
+
+/**
+ * A app envia o zip do plugin que traz dentro (corpo application/zip) quando este site tem uma versão mais antiga.
+ * É o mesmo que Plugins → Adicionar → Carregar → "Substituir o atual pelo carregado", sem sair da app.
+ */
+function wpcenter_ligacao_self_update( WP_REST_Request $request ) {
+	wpcenter_ligacao_load_admin();
+	if ( 'direct' !== get_filesystem_method() || ! wp_is_file_mod_allowed( 'plugin_install' ) ) {
+		return new WP_Error( 'wpcenter_not_writable', 'O servidor não deixa o WordPress instalar plugins daqui.', array( 'status' => 500 ) );
+	}
+	$zip = wp_tempnam( 'wpcenter-ligacao.zip' );
+	file_put_contents( $zip, $request->get_body() );
+	// Só este plugin: outra pasta dentro do zip seria outro plugin. Sem ZipArchive no servidor fica sem esta verificação
+	// (quem tem install_plugins pode carregar qualquer plugin no WP Admin de qualquer forma).
+	$foreign = false;
+	if ( class_exists( 'ZipArchive' ) ) {
+		$archive = new ZipArchive();
+		$opened  = true === $archive->open( $zip );
+		$foreign = ! $opened || 0 === $archive->numFiles;
+		for ( $i = 0; ! $foreign && $i < $archive->numFiles; $i++ ) {
+			$foreign = 0 !== strpos( $archive->getNameIndex( $i ), 'wpcenter-ligacao/' );
+		}
+		if ( $opened ) {
+			$archive->close();
+		}
+	}
+	if ( $foreign ) {
+		wp_delete_file( $zip );
+		return new WP_Error( 'wpcenter_bad_package', 'O pacote não é o plugin WP Center Ligação.', array( 'status' => 400 ) );
+	}
+	$skin   = new WP_Ajax_Upgrader_Skin();
+	$result = ( new Plugin_Upgrader( $skin ) )->install( $zip, array( 'overwrite_package' => true ) );
+	wp_delete_file( $zip );
+	if ( ! $result || is_wp_error( $result ) ) {
+		$message = is_wp_error( $result ) ? $result->get_error_message() : implode( ' ', (array) $skin->get_error_messages() );
+		return new WP_Error( 'wpcenter_self_update', $message ? $message : 'Falhou a atualização do plugin.', array( 'status' => 500 ) );
+	}
+	// Continua ativo: a ativação guarda o caminho do ficheiro, que não mudou. O código novo só corre no pedido seguinte.
+	return array( 'ok' => true );
+}
 
 function wpcenter_ligacao_load_admin() {
 	require_once ABSPATH . 'wp-admin/includes/admin.php';
@@ -148,6 +199,8 @@ function wpcenter_ligacao_status( WP_REST_Request $request ) {
 		'core'      => $core,
 		'plugins'   => $plugins,
 		'themes'    => $themes,
+		// Pacotes de idioma por atualizar (WordPress, plugins e temas), como o botão "Atualizar traduções".
+		'translations' => count( wp_get_translation_updates() ),
 		'checked'   => isset( $plugin_updates->last_checked ) ? (int) $plugin_updates->last_checked : null,
 		'debug'     => defined( 'WP_DEBUG' ) && WP_DEBUG,
 		'writable'  => 'direct' === get_filesystem_method(),
@@ -156,7 +209,7 @@ function wpcenter_ligacao_status( WP_REST_Request $request ) {
 
 /**
  * Atualiza com o atualizador do próprio WordPress, o mesmo do botão "Atualizar agora".
- * Corpo: {"plugins": ["pasta/ficheiro.php"], "themes": ["slug"], "core": true}
+ * Corpo: {"plugins": ["pasta/ficheiro.php"], "themes": ["slug"], "core": true, "translations": true}
  * Devolve o estado novo e os erros de cada item que falhou.
  */
 function wpcenter_ligacao_update( WP_REST_Request $request ) {
@@ -210,6 +263,19 @@ function wpcenter_ligacao_update( WP_REST_Request $request ) {
 			$collect( array( 'wordpress' => $result ), $skin, 'Falhou a atualização do WordPress.' );
 			$new_core = is_string( $result ) ? $result : null;
 		}
+	}
+
+	// Depois do resto: um WordPress, plugin ou tema novo pode trazer traduções novas.
+	if ( $request->get_param( 'translations' ) ) {
+		$skin    = new WP_Ajax_Upgrader_Skin();
+		$results = ( new Language_Pack_Upgrader( $skin ) )->bulk_upgrade();
+		$failed  = array_filter(
+			(array) $results,
+			function ( $result ) {
+				return ! $result || is_wp_error( $result );
+			}
+		);
+		$collect( array( 'translations' => $failed ? reset( $failed ) : true ), $skin, 'Falhou a atualização das traduções.' );
 	}
 
 	// Estado fresco: os atualizadores limpam a cache das atualizações e o wordpress.org volta a ser consultado.

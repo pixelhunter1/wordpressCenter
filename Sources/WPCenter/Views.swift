@@ -427,10 +427,11 @@ struct SiteDetailView: View {
                 }
                 updatesRow("Plugins", health.plugins, checked: health.checked)
                 updatesRow("Temas", health.themes, checked: health.checked)
+                updatesRow("Traduções", health.translations, checked: health.checked)
                 LabeledContent("Modo debug") {
                     if health.debug { StatusText("Ligado: desligue antes de exportar", .warning) } else { StatusText("Desligado", .ok) }
                 }
-                if health.core != nil || !health.plugins.isEmpty || !health.themes.isEmpty {
+                if health.core != nil || !health.plugins.isEmpty || !health.themes.isEmpty || !health.translations.isEmpty {
                     HStack {
                         Spacer()
                         Button("Atualizar no WP Admin") { Task { await store.openAdmin(site, page: "update-core.php") } }

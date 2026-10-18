@@ -934,6 +934,8 @@ final class SiteStore: ObservableObject {
         var core: String?
         var plugins: [String]
         var themes: [String]
+        /// "slug (língua)" de cada pacote de idioma por atualizar.
+        var translations: [String]
         /// false se o WordPress ainda não verificou atualizações (ou as caches foram limpas).
         var checked: Bool
         var debug: Bool

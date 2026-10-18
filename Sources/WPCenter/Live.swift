@@ -40,6 +40,8 @@ struct LiveStatus: Decodable {
     let core: String?
     let plugins: [Item]
     let themes: [Item]
+    /// Pacotes de idioma por atualizar (plugin 1.3+; nil nos mais antigos). Atualizam-se todos de uma vez, como no WP Admin.
+    let translations: Int?
     let checked: Date?
     let debug: Bool
     let writable: Bool
@@ -47,7 +49,10 @@ struct LiveStatus: Decodable {
 
     var pluginUpdates: [Item] { plugins.filter { $0.update != nil } }
     var themeUpdates: [Item] { themes.filter { $0.update != nil } }
-    var updateCount: Int { pluginUpdates.count + themeUpdates.count + (core == nil ? 0 : 1) }
+    var hasTranslations: Bool { (translations ?? 0) > 0 }
+    /// Plugins, temas e traduções: o que "Atualizar tudo" faz (o WordPress fica de fora).
+    var itemUpdates: Int { pluginUpdates.count + themeUpdates.count + (hasTranslations ? 1 : 0) }
+    var updateCount: Int { itemUpdates + (core == nil ? 0 : 1) }
 }
 
 /// Porque é que um site não respondeu, com o texto a mostrar.
@@ -200,7 +205,12 @@ final class LiveStore: ObservableObject {
     }
 
     func refresh(_ site: LiveSite, force: Bool = false) async {
-        await run(site) { try await self.call(site, "/wpcenter/v1/status", query: force ? "force=1" : nil) }
+        await run(site) {
+            let current: LiveStatus = try await self.call(site, "/wpcenter/v1/status", query: force ? "force=1" : nil)
+            // Plugin 1.3+ mais antigo do que o da app: envia o novo. Se falhar, fica o estado lido e o detalhe mostra a versão.
+            guard Self.canSelfUpdate(current), (try? await self.sendPlugin(site)) != nil else { return current }
+            return try await self.call(site, "/wpcenter/v1/status")
+        }
     }
 
     func refreshAll(force: Bool = false) async {
@@ -211,22 +221,28 @@ final class LiveStore: ObservableObject {
 
     /// Devolve os erros por item (plugin, tema ou "wordpress") que o WordPress reportou.
     @discardableResult
-    func update(_ site: LiveSite, plugins: [String] = [], themes: [String] = [], core: Bool = false) async -> [String: String] {
-        let body: [String: Any] = ["plugins": plugins, "themes": themes, "core": core]
+    func update(_ site: LiveSite, plugins: [String] = [], themes: [String] = [], core: Bool = false,
+                translations: Bool = false) async -> [String: String] {
+        let body: [String: Any] = ["plugins": plugins, "themes": themes, "core": core, "translations": translations]
         await run(site) { try await self.call(site, "/wpcenter/v1/update", body: body, timeout: 900) }
         return status[site.id]?.errors ?? [:]
     }
 
-    /// Plugins e temas de todos os sites, em paralelo (servidores diferentes). O WordPress fica de fora: atualiza-se site a site.
+    /// Plugins, temas e traduções de todos os sites, em paralelo (servidores diferentes). O WordPress fica de fora: atualiza-se site a site.
     func updateAll() async {
         await withTaskGroup(of: Void.self) { group in
             for site in sites {
-                guard let current = status[site.id], current.pluginUpdates.count + current.themeUpdates.count > 0 else { continue }
-                group.addTask {
-                    await self.update(site, plugins: current.pluginUpdates.compactMap(\.file), themes: current.themeUpdates.compactMap(\.slug))
-                }
+                guard let current = status[site.id], current.itemUpdates > 0 else { continue }
+                group.addTask { await self.updateItems(site, current) }
             }
         }
+    }
+
+    /// "Atualizar tudo" de um site: plugins, temas e traduções.
+    @discardableResult
+    func updateItems(_ site: LiveSite, _ current: LiveStatus) async -> [String: String] {
+        await update(site, plugins: current.pluginUpdates.compactMap(\.file), themes: current.themeUpdates.compactMap(\.slug),
+                     translations: current.hasTranslations)
     }
 
     private func run(_ site: LiveSite, _ work: @escaping () async throws -> LiveStatus) async {
@@ -244,6 +260,26 @@ final class LiveStore: ObservableObject {
 
     static var pluginZip: URL? { Runtime.appBundle.url(forResource: "wpcenter-ligacao", withExtension: "zip") }
 
+    /// Versão do zip, escrita pelo build.sh a partir do cabeçalho do plugin.
+    static let pluginVersion = Runtime.appBundle.url(forResource: "wpcenter-ligacao", withExtension: "version")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    static func isOutdated(_ status: LiveStatus) -> Bool {
+        guard let bundled = pluginVersion else { return false }
+        return status.plugin.compare(bundled, options: .numeric) == .orderedAscending
+    }
+
+    /// A rota self-update chegou no 1.3; os anteriores atualizam-se à mão uma vez.
+    static func canSelfUpdate(_ status: LiveStatus) -> Bool {
+        isOutdated(status) && status.writable && status.plugin.compare("1.3.0", options: .numeric) != .orderedAscending
+    }
+
+    private func sendPlugin(_ site: LiveSite) async throws {
+        struct Done: Decodable { let ok: Bool }
+        guard let zip = Self.pluginZip else { throw AppError("O plugin não está dentro da app. Volte a compilar com o build.sh.") }
+        let _: Done = try await call(site, "/wpcenter/v1/self-update", upload: try Data(contentsOf: zip))
+    }
+
     /// Copia o zip do plugin para a pasta de exportação (Transferências por omissão) e mostra-o no Finder.
     func revealPlugin() throws {
         guard let zip = Self.pluginZip else { throw AppError("O plugin não está dentro da app. Volte a compilar com o build.sh.") }
@@ -256,7 +292,7 @@ final class LiveStore: ObservableObject {
     // MARK: Rede
 
     private func call<T: Decodable>(_ site: LiveSite, _ path: String, query: String? = nil, body: [String: Any]? = nil,
-                      timeout: TimeInterval = 120) async throws -> T {
+                      upload: Data? = nil, timeout: TimeInterval = 120) async throws -> T {
         guard let password = password(for: site) else { throw LiveProblem.unauthorized }
         let separator = site.restBase.contains("?") ? "&" : "?"
         guard let url = URL(string: site.restBase + path + (query.map { separator + $0 } ?? "")) else { throw LiveProblem.message(L("Endereço inválido.")) }
@@ -267,6 +303,10 @@ final class LiveStore: ObservableObject {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } else if let upload {
+            request.httpMethod = "POST"
+            request.setValue("application/zip", forHTTPHeaderField: "Content-Type")
+            request.httpBody = upload
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0

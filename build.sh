@@ -73,6 +73,8 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 cp Assets/logo.svg "$APP/Contents/Resources/logo.svg" # logo usado dentro da app
 # Plugin dos sites live, já em zip para Plugins → Adicionar → Carregar (a pasta dentro do zip é o nome do plugin).
 ditto -c -k --norsrc --noextattr --keepParent Plugin/wpcenter-ligacao "$APP/Contents/Resources/wpcenter-ligacao.zip"
+# A versão do zip: a app envia-o aos sites live com uma versão mais antiga (plugin 1.3+).
+sed -n 's/^ \* Version: *//p' Plugin/wpcenter-ligacao/wpcenter-ligacao.php > "$APP/Contents/Resources/wpcenter-ligacao.version"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
