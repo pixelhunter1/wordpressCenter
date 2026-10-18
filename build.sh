@@ -57,6 +57,13 @@ for s in wp-plugin-development wp-block-development wp-block-themes wp-rest-api 
 done
 # A wp-center (nossa) e as do WordPress/agent-skills que o Studio não traz vivem no repositório (Runtime/skills/README.md).
 cp -R Runtime/skills/. "$R/skills/"
+# Motor do impeccable compilado do código (Vendor/impeccable, fora do git): sem ele o lançador da skill descarregava-o do GitHub.
+if [[ -x Vendor/impeccable/impeccable ]]; then
+  mkdir -p "$R/skills/impeccable/scripts/bin/darwin-arm64"
+  cp Vendor/impeccable/impeccable "$R/skills/impeccable/scripts/bin/darwin-arm64/"
+else
+  echo "Aviso: Vendor/impeccable/impeccable em falta (Runtime/skills/README.md); a skill impeccable funciona sem o motor."
+fi
 sed -i '' -e 's/ (auto-submitted to WordPress.com)//' \
   -e 's/local Studio site, so this is purely about preparing the site for production\..*/local WP Center site, so this is purely about preparing the site for production (migrated to cPanel with WPvivid)./' \
   "$R/skills/rank-me-up/SKILL.md"

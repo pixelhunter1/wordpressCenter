@@ -3,7 +3,8 @@ import Foundation
 import Security
 
 /// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio
-/// e de Runtime/skills: a wp-center (nossa) e as do WordPress/agent-skills que o Studio não traz.
+/// e de Runtime/skills: a wp-center (nossa), as do WordPress/agent-skills que o Studio não traz e as de design
+/// (impeccable e MengTo/Skills).
 struct AgentSkill: Identifiable {
     let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
     let title: String
@@ -23,6 +24,10 @@ struct AgentSkill: Identifiable {
         AgentSkill(id: "need-for-speed", title: L("Desempenho"), summary: L("Auditoria de velocidade do site com recomendações")),
         AgentSkill(id: "rank-me-up", title: "SEO", summary: L("Auditoria de SEO on-page com recomendações")),
         AgentSkill(id: "visual-design", title: L("Design visual"), summary: L("Direção visual: layout, tipografia, cor e imagens")),
+        AgentSkill(id: "impeccable", title: "Impeccable", summary: L("Design de interfaces: direção, tipografia, cor, layout, movimento e revisão")),
+        AgentSkill(id: "no-ai-design-slop", title: L("Sem design genérico de IA"), summary: L("Filtro de qualidade em todo o trabalho visual")),
+        AgentSkill(id: "audit-ai-design-slop", title: L("Auditoria de design"), summary: L("Revisão com provas de clichés de IA e defeitos de interface")),
+        AgentSkill(id: "animation-systems", title: L("Movimento"), summary: L("Animações com propósito: easing, coreografia e movimento reduzido")),
     ]
 }
 
@@ -428,6 +433,9 @@ final class SiteStore: ObservableObject {
 
         """)
         write("CLAUDE.md", "@AGENTS.md\n")
+        // O impeccable lê a configuração do projeto: sem telemetria nem verificação de atualizações neste site.
+        try? fm.createDirectory(at: site.folder.appendingPathComponent(".impeccable"), withIntermediateDirectories: true)
+        write(".impeccable/config.json", "{\n  \"telemetry\": false,\n  \"updateCheck\": false\n}\n")
         write("WPCENTER.md", """
         > Gerido pelo WP Center: a app reescreve este ficheiro. Instruções próprias vão no AGENTS.md.
 
@@ -458,6 +466,17 @@ final class SiteStore: ObservableObject {
         7. `wpc screenshot [página]` e abre o PNG para ver o resultado; repete até estar certo
 
         Os comandos usam o site da pasta atual; a partir de outra pasta usa `wpc --path <pasta-do-site> …`.
+
+        ## Design
+
+        Em qualquer trabalho visual (tema, `theme.json`, CSS, padrões, templates, páginas, secções), sem esperar que o utilizador o peça:
+
+        1. Antes de editar, carrega a skill `impeccable` (se estiver instalada) e segue-a; no Claude Code é `/impeccable`. Se existirem `PRODUCT.md` e `DESIGN.md` na raiz do site, são a referência; se não existirem e o trabalho for grande, cria-os com `impeccable init`/`document`.
+        2. Aplica a skill `no-ai-design-slop` como filtro de qualidade em cada secção que acrescentas; `animation-systems` quando houver movimento.
+        3. Vê o resultado com `wpc screenshot` em computador e em telemóvel (`--width 390`) e corrige o que estiver mal antes de dares o trabalho por terminado.
+        4. Para uma revisão sem editar, usa `audit-ai-design-slop`.
+
+        Os sites são feitos com o editor de blocos, sem page builders: o design vive no tema de blocos (`theme.json`, templates, padrões) e em CSS do tema, não em estilos colados em cada bloco.
 
         ## Verificar o trabalho
 

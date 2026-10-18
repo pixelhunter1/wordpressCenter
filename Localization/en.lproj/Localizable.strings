@@ -547,3 +547,10 @@
 "Sem memória para a imagem." = "Not enough memory for the image.";
 "Versão de %@ não suportada: %@. Disponíveis: %@" = "Unsupported %@ version: %@. Available: %@";
 "Versão do PHP não suportada: %@. Disponíveis: %@" = "Unsupported PHP version: %@. Available: %@";
+"Design de interfaces: direção, tipografia, cor, layout, movimento e revisão" = "Interface design: direction, typography, color, layout, motion and review";
+"Sem design genérico de IA" = "No generic AI design";
+"Filtro de qualidade em todo o trabalho visual" = "Quality gate for all visual work";
+"Auditoria de design" = "Design audit";
+"Revisão com provas de clichés de IA e defeitos de interface" = "Evidence-backed review of AI clichés and UI defects";
+"Movimento" = "Motion";
+"Animações com propósito: easing, coreografia e movimento reduzido" = "Purposeful animation: easing, choreography and reduced motion";
