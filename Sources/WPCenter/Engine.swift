@@ -15,20 +15,21 @@ struct AgentSkill: Identifiable {
         AgentSkill(id: "wordpress-router", title: L("Encaminhamento WordPress"), summary: L("Classifica o projeto e escolhe a habilidade certa")),
         AgentSkill(id: "wp-project-triage", title: L("Diagnóstico do projeto"), summary: L("Relatório do tipo de projeto, ferramentas e testes")),
         AgentSkill(id: "wp-plugin-development", title: L("Desenvolvimento de plugins"), summary: L("Hooks, Settings API, segurança e empacotamento")),
-        AgentSkill(id: "wp-block-development", title: L("Desenvolvimento de blocos"), summary: L("block.json, atributos, renderização e deprecações")),
-        AgentSkill(id: "wp-block-themes", title: L("Temas de blocos"), summary: L("theme.json, templates, padrões e variações de estilo")),
         AgentSkill(id: "wp-rest-api", title: "REST API", summary: L("Rotas, endpoints, schema e autenticação")),
         AgentSkill(id: "wp-wpcli-and-ops", title: L("WP-CLI e operações"), summary: L("Comandos, automação e search-replace, através do wpc wp")),
         AgentSkill(id: "wp-performance", title: L("Desempenho do servidor"), summary: L("Perfis com WP-CLI, consultas, autoload, cache e cron")),
         AgentSkill(id: "wp-phpstan", title: "PHPStan", summary: L("Análise estática: phpstan.neon, baselines e tipos do WordPress")),
         AgentSkill(id: "need-for-speed", title: L("Desempenho"), summary: L("Auditoria de velocidade do site com recomendações")),
         AgentSkill(id: "rank-me-up", title: "SEO", summary: L("Auditoria de SEO on-page com recomendações")),
-        AgentSkill(id: "visual-design", title: L("Design visual"), summary: L("Direção visual: layout, tipografia, cor e imagens")),
         AgentSkill(id: "impeccable", title: "Impeccable", summary: L("Design de interfaces: direção, tipografia, cor, layout, movimento e revisão")),
         AgentSkill(id: "no-ai-design-slop", title: L("Sem design genérico de IA"), summary: L("Filtro de qualidade em todo o trabalho visual")),
         AgentSkill(id: "audit-ai-design-slop", title: L("Auditoria de design"), summary: L("Revisão com provas de clichés de IA e defeitos de interface")),
         AgentSkill(id: "animation-systems", title: L("Movimento"), summary: L("Animações com propósito: easing, coreografia e movimento reduzido")),
     ]
+
+    /// Já estiveram no catálogo: a app apaga-as dos sites. Os sites usam temas clássicos (blocos e theme.json só confundiam
+    /// os agentes) e a visual-design do Studio dependia de ferramentas do Studio; o design é do impeccable.
+    static let retired = ["wp-block-development", "wp-block-themes", "visual-design"]
 }
 
 /// Texto traduzido para a língua do Mac (en.lproj; em português a própria chave).
@@ -469,14 +470,14 @@ final class SiteStore: ObservableObject {
 
         ## Design
 
-        Em qualquer trabalho visual (tema, `theme.json`, CSS, padrões, templates, páginas, secções), sem esperar que o utilizador o peça:
+        Em qualquer trabalho visual (templates do tema, CSS, JS, páginas, secções), sem esperar que o utilizador o peça:
 
         1. Antes de editar, carrega a skill `impeccable` (se estiver instalada) e segue-a; no Claude Code é `/impeccable`. Se existirem `PRODUCT.md` e `DESIGN.md` na raiz do site, são a referência; se não existirem e o trabalho for grande, cria-os com `impeccable init`/`document`.
         2. Aplica a skill `no-ai-design-slop` como filtro de qualidade em cada secção que acrescentas; `animation-systems` quando houver movimento.
         3. Vê o resultado com `wpc screenshot` em computador e em telemóvel (`--width 390`) e corrige o que estiver mal antes de dares o trabalho por terminado.
         4. Para uma revisão sem editar, usa `audit-ai-design-slop`.
 
-        Os sites são feitos com o editor de blocos, sem page builders: o design vive no tema de blocos (`theme.json`, templates, padrões) e em CSS do tema, não em estilos colados em cada bloco.
+        Os sites usam temas clássicos, sem page builders nem blocos: o design vive nos templates PHP do tema, no `style.css` e nos ficheiros CSS/JS que o `functions.php` carrega (`wp_enqueue_style`/`wp_enqueue_script`). Não cries `theme.json` nem convertas o tema para blocos; em temas de terceiros, faz as alterações num child theme.
 
         ## Verificar o trabalho
 
@@ -505,6 +506,7 @@ final class SiteStore: ObservableObject {
         for dir in [".claude/skills", ".agents/skills"] {
             let target = site.folder.appendingPathComponent(dir)
             try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+            for id in AgentSkill.retired { try? fm.removeItem(at: target.appendingPathComponent(id)) }
             for skill in AgentSkill.all {
                 let dest = target.appendingPathComponent(skill.id)
                 if !enabled.contains(skill.id) {

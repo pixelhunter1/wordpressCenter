@@ -96,12 +96,9 @@
 "Definições…" = "Settings…";
 "Desempenho" = "Performance";
 "Desempenho do servidor" = "Server Performance";
-"Desenvolvimento de blocos" = "Block Development";
 "Desenvolvimento de plugins" = "Plugin Development";
-"Design visual" = "Visual Design";
 "Detalhes" = "Details";
 "Diagnóstico do projeto" = "Project Triage";
-"Direção visual: layout, tipografia, cor e imagens" = "Visual direction: layout, typography, color and imagery";
 "Disponibilidade por sistema operativo" = "Availability by Operating System";
 "Disponível" = "Available";
 "Disponível no cPanel, mas o WordPress não o suporta nativamente." = "Available on cPanel, but WordPress does not support it natively.";
@@ -267,7 +264,6 @@
 "Só para testes rápidos. Não recomendado para migrar para o cPanel." = "Only for quick tests. Not recommended for migrating to cPanel.";
 "Só se o seu cPanel usar MySQL 8" = "Only if your cPanel uses MySQL 8";
 "Só testes" = "Tests only";
-"Temas de blocos" = "Block Themes";
 "Terminal" = "Terminal";
 "Terminar partilha" = "Stop Sharing";
 "Testar ligação" = "Test Connection";
@@ -296,7 +292,6 @@
 "WordPress %@ · PHP %@, no seu Mac e sem serviços externos." = "WordPress %@ · PHP %@, on your Mac with no external services.";
 "a correr" = "running";
 "a pasta que escolher" = "the folder you choose";
-"block.json, atributos, renderização e deprecações" = "block.json, attributes, rendering and deprecations";
 "cPanel" = "cPanel";
 "endereço do servidor" = "server address";
 "gerada ao acaso se ficar vazia" = "generated at random if left empty";
@@ -307,7 +302,6 @@
 "palavra-passe da base de dados" = "database password";
 "palavra-passe do WordPress" = "WordPress password";
 "parado" = "stopped";
-"theme.json, templates, padrões e variações de estilo" = "theme.json, templates, patterns and style variations";
 "utilizador" = "username";
 "utilizador da base de dados" = "database username";
 "utilizador do WordPress" = "WordPress username";
