@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import WebKit
 
 /// O comando `wpc` é o próprio executável da app, chamado através de uma ligação em ~/.local/bin/wpc.
 @MainActor
@@ -28,6 +29,7 @@ enum CLI {
 
     Comandos:
       wpc list               Lista os sites (--json)
+      wpc create "Nome"      Cria e inicia um site novo; --db sqlite|mariadb|mysql, --db-version 10.11, --php 8.3
       wpc status             Estado, endereço, credenciais e base de dados do site (--json)
       wpc context            Resumo para agentes: tema, construtor, plugins, conteúdo, WooCommerce (--json)
       wpc start              Inicia o site (e o servidor de base de dados, se for preciso)
@@ -36,6 +38,8 @@ enum CLI {
       wpc login-url [página] Link de entrada no wp-admin (p.ex. plugins.php), de uso único e válido 60 s
       wpc flush              Limpa as caches: objetos, transients, ligações permanentes, Elementor, plugins de cache
       wpc logs [linhas]      Erros recentes do PHP e do wp-content/debug.log
+      wpc screenshot [página] Imagem PNG da página inteira (p.ex. contacto/ ou wp-admin/edit.php, já com sessão);
+                             --width 390 para telemóvel, --viewport só o primeiro ecrã, --out ficheiro.png
       wpc mail [ID]          Últimos emails apanhados pelo Mailpit; com ID, mostra o texto de um (--json)
       wpc export             Backup WPvivid pronto a restaurar no cPanel (--convert: corrige colações do MySQL 8)
       wpc export --wpcenter  O site completo num .zip, para importar noutra WP Center
@@ -76,6 +80,8 @@ enum CLI {
             return 0
         case "mail":
             return await mail(Array(args.dropFirst()))
+        case "create":
+            return await create(Array(args.dropFirst()), store)
         case "import":
             var rest = Array(args.dropFirst())
             var name: String?
@@ -209,11 +215,7 @@ enum CLI {
             return await wp(site, store, ["eval-file", Runtime.tools.path], env: ["WPCENTER_ACTION": "flush"])
 
         case "login-url":
-            if !store.isRunning(site) {
-                await store.start(site, detached: true)
-                if let error = store.errorMessage { fail(error); return 1 }
-                for _ in 0..<40 where SiteStore.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(250)) }
-            }
+            guard await ensureStarted(site, store) else { return 1 }
             do {
                 print(try await store.adminLoginURL(site, page: args.dropFirst().first ?? "").absoluteString)
                 return 0
@@ -232,6 +234,10 @@ enum CLI {
             if !server.isEmpty { print(L("== Servidor PHP ==")); server.forEach { print($0) } }
             if !debug.isEmpty { print(L("== wp-content/debug.log ==")); debug.forEach { print($0) } }
             return 0
+
+        case "screenshot":
+            guard await ensureStarted(site, store) else { return 1 }
+            return await screenshot(site, store, Array(args.dropFirst()))
 
         case "wp":
             return await wp(site, store, Array(args.dropFirst()))
@@ -258,6 +264,115 @@ enum CLI {
             try p.run()
             p.waitUntilExit()
             return p.terminationStatus
+        } catch {
+            fail(error.localizedDescription)
+            return 1
+        }
+    }
+
+    private static func ensureStarted(_ site: Site, _ store: SiteStore) async -> Bool {
+        guard !store.isRunning(site) else { return true }
+        await store.start(site, detached: true)
+        if let error = store.errorMessage { fail(error); return false }
+        for _ in 0..<40 where SiteStore.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(250)) }
+        return true
+    }
+
+    /// PNG de uma página do site, renderizada pelo WebKit sem janela, para o agente ver o que construiu.
+    /// Só abre endereços deste site (a única rede é o localhost); páginas do wp-admin entram com sessão iniciada.
+    private static func screenshot(_ site: Site, _ store: SiteStore, _ args: [String]) async -> Int32 {
+        var rest = args
+        func take(_ flag: String) -> String? {
+            guard let i = rest.firstIndex(of: flag), i + 1 < rest.count else { return nil }
+            defer { rest.removeSubrange(i...(i + 1)) }
+            return rest[i + 1]
+        }
+        let width = take("--width").flatMap(Int.init) ?? 1280
+        let height = take("--height").flatMap(Int.init) ?? 800
+        let out = take("--out").map { URL(fileURLWithPath: $0) }
+        let page = (rest.first { !$0.hasPrefix("--") } ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard (200...4000).contains(width), (200...4000).contains(height) else { fail(L("Largura e altura entre 200 e 4000.")); return 1 }
+
+        do {
+            let url = page == "wp-admin" || page.hasPrefix("wp-admin/")
+                ? try await store.adminLoginURL(site, page: String(page.dropFirst("wp-admin".count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+                : URL(string: site.url.absoluteString + "/" + page) ?? site.url
+            _ = NSApplication.shared
+            NSApp.setActivationPolicy(.prohibited) // sem ícone na Dock
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent() // a sessão do wp-admin não fica guardada
+            let web = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: configuration)
+            let loader = PageLoader()
+            web.navigationDelegate = loader
+            try await loader.load(url, in: web)
+            try await Task.sleep(for: .milliseconds(600)) // tipos de letra e imagens que chegam depois do load
+            if !rest.contains("--viewport"), let full = try await web.evaluateJavaScript("document.documentElement.scrollHeight") as? Double {
+                web.frame.size.height = min(max(full, Double(height)), 16000)
+            }
+            let image = try await web.takeSnapshot(configuration: nil)
+            // 1 px por ponto (não os 2x do ecrã Retina): metade do peso para o agente ler.
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(web.frame.width), pixelsHigh: Int(web.frame.height),
+                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { throw AppError("Sem memória para a imagem.") }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            image.draw(in: NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh))
+            NSGraphicsContext.restoreGraphicsState()
+            guard let png = rep.representation(using: .png, properties: [:]) else { throw AppError("Não foi possível gravar a imagem.") }
+            let file = out ?? FileManager.default.temporaryDirectory.appendingPathComponent("wpc-screenshots/\(SiteStore.slug(site.name))-\(Int(Date().timeIntervalSince1970)).png")
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try png.write(to: file)
+            print(file.path)
+            return 0
+        } catch {
+            fail(error.localizedDescription)
+            return 1
+        }
+    }
+
+    /// Site novo com as predefinições da app (pasta, motor, PHP, utilizador), já iniciado — para agentes que precisam de um site.
+    private static func create(_ args: [String], _ store: SiteStore) async -> Int32 {
+        var rest = args
+        func take(_ flag: String) -> String? {
+            guard let i = rest.firstIndex(of: flag), i + 1 < rest.count else { return nil }
+            defer { rest.removeSubrange(i...(i + 1)) }
+            return rest[i + 1]
+        }
+        var db = Prefs.defaultDatabase
+        if let value = take("--db") {
+            guard let engine = DatabaseEngine(rawValue: value.lowercased()), engine.isAvailable else {
+                fail(L("Motor desconhecido: \(value). Use sqlite, mariadb ou mysql."))
+                return 1
+            }
+            db = DatabaseConfig(engine: engine, targetVersion: engine.defaultVersion)
+        }
+        if let version = take("--db-version") {
+            guard db.engine.cpanelVersions.contains(version) else {
+                fail(L("Versão de \(db.engine.title) não suportada: \(version). Disponíveis: \(db.engine.cpanelVersions.joined(separator: ", "))"))
+                return 1
+            }
+            db.targetVersion = version
+        }
+        let php = take("--php") ?? Prefs.defaultPHP
+        guard PHPVersions.all.contains(php) else {
+            fail(L("Versão do PHP não suportada: \(php). Disponíveis: \(PHPVersions.all.joined(separator: ", "))"))
+            return 1
+        }
+        guard let name = rest.first(where: { !$0.hasPrefix("--") }) else {
+            fail(L("Indique o nome: wpc create \"Nome\" [--db sqlite|mariadb|mysql] [--db-version X] [--php X]"))
+            return 1
+        }
+        print(L("A criar \(name)…"))
+        fflush(stdout)
+        do {
+            let site = try await store.create(name: name, in: SiteStore.defaultDirectory,
+                                              adminUser: Prefs.customAdminUser ?? SiteStore.defaultAdminUser, database: db, php: php)
+            await store.start(site, detached: true)
+            if let error = store.errorMessage { fail(error); return 1 }
+            for _ in 0..<40 where SiteStore.isPortFree(site.port) { try? await Task.sleep(for: .milliseconds(250)) }
+            print(L("Pronto: \(site.name) em \(site.url.absoluteString)  —  \(site.path)"))
+            print(L("Utilizador: \(site.adminUser)  Palavra-passe: \(site.adminPassword)"))
+            return 0
         } catch {
             fail(error.localizedDescription)
             return 1
@@ -326,4 +441,30 @@ enum CLI {
     private static func fail(_ message: String) {
         FileHandle.standardError.write(Data("wpc: \(message)\n".utf8))
     }
+}
+
+/// Espera pelo fim do carregamento de uma página (ou por um erro, ou 30 s).
+@MainActor
+private final class PageLoader: NSObject, WKNavigationDelegate {
+    private var waiting: CheckedContinuation<Void, Error>?
+
+    func load(_ url: URL, in web: WKWebView) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            waiting = continuation
+            web.load(URLRequest(url: url))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                self?.finish(AppError("A página não acabou de carregar em 30 s: \(url.absoluteString)"))
+            }
+        }
+    }
+
+    private func finish(_ error: Error?) {
+        guard let waiting else { return }
+        self.waiting = nil
+        if let error { waiting.resume(throwing: error) } else { waiting.resume() }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(nil) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(error) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(error) }
 }

@@ -150,8 +150,11 @@ struct ContentView: View {
             handle(store.windowRequest) // a janela pode ter sido aberta pelo próprio pedido
         }
         .onChange(of: store.windowRequest) { _, request in handle(request) }
-        // Sites iniciados/parados pelo `wpc` no terminal: refresca o estado de vez em quando.
-        .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in store.objectWillChange.send() }
+        // Sites criados, iniciados ou parados pelo `wpc` no terminal: refresca de vez em quando.
+        .onReceive(Timer.publish(every: 3, on: .main, in: .common).autoconnect()) { _ in
+            store.adoptForeignSites()
+            store.objectWillChange.send()
+        }
     }
 
     /// Pedidos dos menus (Definições ⌘,, Novo site ⌘N, Ajuda → cPanel) para esta janela.

@@ -13,7 +13,7 @@ Este site corre no Mac através do WP Center e acaba num servidor cPanel, restau
 - WP-CLI é SEMPRE `wpc wp …` (nunca um `wp` do sistema): usa o PHP e a base de dados deste site. Se `wpc --version` falhar, pede ao utilizador para ativar "Comando wpc no terminal" nas Definições do WP Center.
 - `wpc status` mostra estado, endereço, login e base de dados. `wpc start` / `wpc stop` arrancam e param o site; `wpc admin` abre o wp-admin com sessão iniciada.
 - Fora da pasta do site: `wpc --path <pasta-do-site> …`. `wpc list` lista os sites.
-- Antes de mexer: `wpc context` (tema, construtor, plugins ativos, conteúdo, WooCommerce). Para verificar: `wpc login-url` (entrada no wp-admin de uso único para o teu navegador), `wpc logs` (erros do PHP), `wpc flush` (caches). `--json` em `status`, `list`, `context` e `mail`.
+- Antes de mexer: `wpc context` (tema, construtor, plugins ativos, conteúdo, WooCommerce). Para verificar: `wpc login-url` (entrada no wp-admin de uso único para o teu navegador), `wpc screenshot [página]` (PNG da página para veres o resultado; `--width 390` telemóvel, `wp-admin/…` com sessão), `wpc logs` (erros do PHP), `wpc flush` (caches). Site novo: `wpc create "Nome"`. `--json` em `status`, `list`, `context` e `mail`.
 - Não escrevas no código URLs `localhost`/`127.0.0.1` nem caminhos absolutos do Mac: no cPanel o domínio e a pasta são outros. Usa `home_url()`, `plugins_url()`, `get_theme_file_uri()`, `__DIR__`.
 
 ## Emails

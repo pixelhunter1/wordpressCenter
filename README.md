@@ -286,6 +286,7 @@ app. Make sure `~/.local/bin` is in your `PATH`, then open a new Terminal window
 Usage: wpc [--path <site-folder>] <command>
 
   wpc list            List the sites (--json)
+  wpc create "Name"   Create and start a new site; --db sqlite|mariadb|mysql, --db-version 10.11, --php 8.3
   wpc status          Status, address, credentials and database of the site (--json)
   wpc context         Summary for agents: theme, builder, plugins, content, WooCommerce (--json)
   wpc start           Start the site (and the database server, if needed)
@@ -294,6 +295,8 @@ Usage: wpc [--path <site-folder>] <command>
   wpc login-url [page] One-time wp-admin sign-in link (e.g. plugins.php), valid for 60 s
   wpc flush           Clear caches: object cache, transients, permalinks, Elementor, cache plugins
   wpc logs [lines]    Recent PHP errors and wp-content/debug.log
+  wpc screenshot [page] Full-page PNG of a site page (e.g. contact/ or wp-admin/edit.php, signed in);
+                       --width 390 for mobile, --viewport for the first screen only, --out file.png
   wpc mail [ID]       Latest emails caught by Mailpit; with an ID, shows one as text (--json)
   wpc export          WPvivid backup ready to restore on cPanel
                         --convert     fix MySQL 8 collations

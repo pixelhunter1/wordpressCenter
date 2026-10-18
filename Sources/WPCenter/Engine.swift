@@ -294,6 +294,20 @@ final class SiteStore: ObservableObject {
         if let data = try? Data(contentsOf: file) {
             sites = (try? Self.decoder.decode([Site].self, from: data)) ?? []
         }
+        known = Set(sites.map(\.id))
+    }
+
+    /// Ids que este processo já conheceu: um site em disco fora deste conjunto foi criado por outro processo (app ↔ `wpc`).
+    private var known: Set<UUID> = []
+
+    /// Acrescenta os sites que outro processo gravou no sites.json desde que o lemos (p.ex. `wpc create` com a app aberta).
+    /// Os que este processo apagou não voltam: estão em `known`.
+    // ponytail: só junta sites novos; um nome alterado noutro processo perde-se se este gravar a seguir.
+    func adoptForeignSites() {
+        guard let data = try? Data(contentsOf: file), let disk = try? Self.decoder.decode([Site].self, from: data) else { return }
+        let foreign = disk.filter { !known.contains($0.id) }
+        known.formUnion(foreign.map(\.id))
+        if !foreign.isEmpty { sites += foreign }
     }
 
     static var defaultDirectory: URL {
@@ -441,16 +455,18 @@ final class SiteStore: ObservableObject {
         4. Edita ficheiros em `wp-content/themes/` ou `wp-content/plugins/`
         5. `wpc wp …` para ativar temas/plugins, criar conteúdo, etc.
         6. `wpc flush` se uma alteração não aparecer (caches de objetos, transients, ligações permanentes, Elementor, plugins de cache)
-        7. Verifica o resultado no URL do site
+        7. `wpc screenshot [página]` e abre o PNG para ver o resultado; repete até estar certo
 
         Os comandos usam o site da pasta atual; a partir de outra pasta usa `wpc --path <pasta-do-site> …`.
 
         ## Verificar o trabalho
 
         - `wpc login-url [página]` — link de entrada no wp-admin já com sessão iniciada (p.ex. `wpc login-url plugins.php`), de uso único e válido 60 s; inicia o site se for preciso. Abre-o no navegador que controlas para ver ou testar o painel.
+        - `wpc screenshot [página]` — PNG da página inteira, renderizada sem abrir janelas; o comando imprime o caminho do ficheiro. Exemplos: `wpc screenshot`, `wpc screenshot contacto/`, `wpc screenshot --width 390` (telemóvel), `wpc screenshot --viewport` (só o primeiro ecrã), `wpc screenshot "wp-admin/post.php?post=12&action=edit"` (wp-admin já com sessão, p.ex. para ver se o editor avisa de blocos inválidos). `--out ficheiro.png` para escolher onde fica.
         - `wpc logs` — erros recentes do PHP e do `wp-content/debug.log`. Para registar tudo: `wpc wp config set WP_DEBUG true --raw`, `wpc wp config set WP_DEBUG_LOG true --raw` e `wpc wp config set WP_DEBUG_DISPLAY false --raw`; no fim volta a pôr `WP_DEBUG` a `false`.
         - `wpc mail` — emails enviados pelos sites (formulários, encomendas), apanhados neste Mac; `wpc mail <ID>` mostra o texto de um.
         - `wpc duplicate --name "…"` — cópia completa do site (ficheiros e base de dados) antes de uma alteração arriscada.
+        - `wpc create "Nome"` — site novo, já iniciado, com as predefinições da app (`--db sqlite|mariadb|mysql`, `--db-version`, `--php`); imprime o endereço, a pasta e as credenciais. Só quando o utilizador pedir um site novo.
         - `--json` em `wpc status`, `wpc list`, `wpc context` e `wpc mail` dá um resultado fácil de ler num script.
 
         ## Este site
@@ -911,8 +927,9 @@ final class SiteStore: ObservableObject {
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw AppError("Sem aleatoriedade segura.") }
         let token = bytes.map { String(format: "%02x", $0) }.joined()
         _ = try await access(site, "login", ["WPCENTER_TOKEN": token])
-        var components = URLComponents(url: site.url.appendingPathComponent("wp-admin/" + page), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "wpcenter_login", value: token)]
+        // A página pode trazer uma query (post.php?post=1&action=edit): o token junta-se a ela em vez de a substituir.
+        var components = URLComponents(string: site.url.absoluteString + "/wp-admin/" + page) ?? URLComponents(url: site.url, resolvingAgainstBaseURL: false)!
+        components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "wpcenter_login", value: token)]
         return components.url!
     }
 
@@ -1172,6 +1189,8 @@ final class SiteStore: ObservableObject {
     }()
 
     private func save() throws {
+        adoptForeignSites() // sem isto, gravar apagava da lista os sites criados entretanto pelo `wpc`
+        known.formUnion(sites.map(\.id))
         try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
         try Self.encoder.encode(sites).write(to: file, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) // contém palavras-passe

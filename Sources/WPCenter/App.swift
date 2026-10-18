@@ -8,7 +8,7 @@ enum Main {
             // Como `wpc` o processo não tem o identificador da app: lê as mesmas preferências que ela.
             UserDefaults.standard.addSuite(named: "local.wpcenter")
             Task { @MainActor in exit(await CLI.run()) }
-            dispatchMain()
+            CFRunLoopRun() // não dispatchMain(): o WebKit do `wpc screenshot` precisa do run loop principal
         }
         if CommandLine.arguments.contains("--selftest") {
             Task { @MainActor in exit(await SelfTest.run() ? 0 : 1) }
@@ -160,6 +160,20 @@ enum SelfTest {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-selftest-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) } // só a pasta temporária criada aqui
         let store = SiteStore(storage: tmp.appendingPathComponent("support"))
+
+        // App e `wpc` gravam o mesmo sites.json: nenhum apaga da lista o site que o outro criou.
+        let shared = tmp.appendingPathComponent("shared")
+        let app = SiteStore(storage: shared), cli = SiteStore(storage: shared)
+        func stub(_ name: String) -> Site {
+            Site(name: name, path: shared.appendingPathComponent(name).path, port: 1, adminPassword: "p", wpVersion: "7", database: DatabaseConfig(engine: .sqlite))
+        }
+        try? FileManager.default.createDirectory(at: shared.appendingPathComponent("a"), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: shared.appendingPathComponent("b"), withIntermediateDirectories: true)
+        try? app.add(stub("a"))
+        try? cli.add(stub("b")) // o cli leu antes de "a" existir: ao gravar tem de o manter
+        app.adoptForeignSites()
+        check(Set(SiteStore(storage: shared).sites.map(\.name)) == ["a", "b"] && app.sites.map(\.name) == ["a", "b"],
+              "sites criados pelo wpc com a app aberta não se perdem")
 
         // MySQL: porta fechada → erro limpo, sem rebentar.
         var db = DatabaseConfig(engine: .mysql, targetVersion: "8.4", port: 1, name: "teste_wp", user: "x")
