@@ -1,5 +1,5 @@
 {
-  "comment": "Correções nossas a ficheiros que vêm do upstream. Aplicadas em dois sítios, a partir deste mesmo ficheiro: o build (Scripts/patch-skill.pl) e a app, depois de trazer uma versão nova (SkillUpdates.swift). O 'file' é relativo à pasta da skill, para a regra servir tanto o repositório como o pacote e a cópia que a app guarda. Substituição de texto exata: se o ficheiro ou o alvo desaparecerem, falha em vez de deixar a skill meio corrigida.",
+  "comment": "Correções nossas a ficheiros que vêm do upstream. Aplicadas em dois sítios, a partir deste mesmo ficheiro: o build (Scripts/patch-skill.pl) e a app, depois de trazer uma versão nova (SkillUpdates.swift). O 'file' é relativo à pasta da skill, para a regra servir tanto o repositório como o pacote e a cópia que a app guarda. Substituição de texto exata: se o ficheiro ou o alvo desaparecerem, falha em vez de deixar a skill meio corrigida. Uma regra apaga texto sempre com a âncora à volta dentro do 'find' e um 'replace' não vazio: a app aplica cada regra duas vezes na mesma atualização e só um 'replace' presente prova que já foi feita.",
   "patches": [
     {
       "skill": "wp-performance",
@@ -11,9 +11,9 @@
     {
       "skill": "rank-me-up",
       "file": "SKILL.md",
-      "find": " (auto-submitted to WordPress.com)",
-      "replace": "",
-      "why": "O site é local: não há submissão a serviço nenhum."
+      "find": "at `/sitemap.xml` (auto-submitted to WordPress.com)",
+      "replace": "at `/sitemap.xml`",
+      "why": "O site é local: não há submissão a serviço nenhum. A âncora à volta é o que deixa a segunda passagem reconhecer a regra já aplicada."
     },
     {
       "skill": "rank-me-up",

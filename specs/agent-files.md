@@ -38,6 +38,12 @@ Make every site a place where an AI agent can work correctly without being told:
   `wpc wp` call in `perf_inspect.mjs`, the Studio wording in `rank-me-up`); the build applies them to the bundle and
   the app applies them to whatever it has just fetched — so an in-app update cannot silently undo them. Applying twice
   is harmless, and a rule whose target has disappeared is an error, not a warning.
+- **A correction never deletes text without an anchor.** One update applies every rule twice (`check()` corrects the
+  copy it fetched so the comparison is fair, `apply()` corrects what it copied), and the only proof that a rule has
+  already run is its `replace` text being there. A rule that removed a phrase therefore writes the phrase's
+  surroundings into `find` and leaves the rest as `replace` — `rank-me-up` turns
+  "at `/sitemap.xml` (auto-submitted to WordPress.com)" into "at `/sitemap.xml`". A rule with an empty `replace` is
+  refused by `Scripts/patch-skill.pl` (so the build fails) and by `--selftest` (`selftest`).
 - **The engine is text-only territory.** The impeccable skill's compiled engine ships with the build; the button
   never fetches a binary, and a fetched copy of that skill inherits `scripts/bin` from the bundle, so an update
   cannot leave a site without an engine. When a fetched skill asks for a newer engine than the app carries, the

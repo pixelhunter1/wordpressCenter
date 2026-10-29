@@ -28,7 +28,11 @@ The only automated test: prove that the app can really create, serve, move and s
   edited inside a site ending up in `.wpcenter/skills-anteriores/` with the bundled copy in place (`agent-files`).
 - **The skills updater is tested without the network**: a fetched copy that wins over the bundle (and is discarded
   when the bundle is newer), `wp-center` always coming from the bundle, the patch list re-applied to freshly fetched
-  text (twice, since it must be idempotent), and a folder compared with itself counting as no change.
+  text (twice, since it must be idempotent), and a folder compared with itself counting as no change. Every rule is
+  also re-applied to the already-patched copy of its skill, which is what one update does (`check()` corrects the
+  copy it fetched, `apply()` corrects the target): it must not throw and must not change a byte, and a rule with an
+  empty `replace` fails outright, because a patch that deletes text cannot prove a second time that it ran
+  (`agent-files`).
 - **It asserts the database pickers against `Database.swift`**, so the cPanel table and the version pickers cannot
   drift (`managed-databases`).
 - **The exit code is the result**: `0` when every check passed, `1` otherwise; each check prints ✓ or ✗ in pt-PT.

@@ -200,6 +200,27 @@ enum SelfTest {
             check(!converged.changed && converged.files == 0,
                   "depois dos patches, uma cópia do upstream fica igual à do pacote")
 
+            // Regressão: `check()` corrige a cópia que trouxe do GitHub e `apply()` volta a corrigir o destino — a
+            // mesma regra corre duas vezes na mesma atualização. Uma regra que apaga texto (`replace` vazio) não tem
+            // como provar que já foi aplicada, e a segunda passagem rebentava com "já não encontra o que corrige":
+            // por isso não é aceite, e todas as outras têm de aguentar a segunda passagem sem mudar um byte.
+            check(rules.patches.allSatisfy { !$0.replace.isEmpty },
+                  "nenhuma regra local apaga texto sem âncora à volta")
+            for id in Set(rules.patches.map(\.skill)).sorted() {
+                let twice = root.appendingPathComponent("twice/\(id)")
+                try FileManager.default.createDirectory(at: twice.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: Runtime.skills.appendingPathComponent(id), to: twice)
+                do {
+                    try SkillUpdater.applyPatches(to: twice, id: id)
+                    let again = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent(id), to: twice)
+                    check(!again.changed && again.files == 0,
+                          "a correção local de \(id) pode ser aplicada duas vezes")
+                } catch {
+                    check(false, "a correção local de \(id) pode ser aplicada duas vezes: \(error.localizedDescription)")
+                }
+                try? FileManager.default.removeItem(at: twice)
+            }
+
             try? FileManager.default.removeItem(at: root)
         } catch {
             check(false, "atualizações das habilidades: \(error.localizedDescription)")

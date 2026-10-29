@@ -23,6 +23,10 @@ if ( @args && $args[0] eq '--json' ) {
     my $rules = JSON::PP->new->decode( do { local $/; <$rh> } );
     close $rh;
     for my $patch ( @{ $rules->{patches} } ) {
+        # Uma regra que apaga texto tem de deixar texto à volta: a app aplica as regras duas vezes numa
+        # atualização e só um 'replace' presente prova que a segunda passagem não tem nada a fazer.
+        die "✗ a regra de $patch->{skill}/$patch->{file} apaga texto sem âncora: um 'replace' vazio não deixa provas de que já foi aplicada\n"
+            if !defined $patch->{replace} || $patch->{replace} eq '';
         # No build a raiz tem todas as skills: um ficheiro que falta é um erro (o upstream mudou o sítio?),
         # não uma regra a ignorar.
         apply( "$root/$patch->{skill}/$patch->{file}", $patch->{find}, $patch->{replace} );
