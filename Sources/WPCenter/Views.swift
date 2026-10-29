@@ -1717,9 +1717,20 @@ struct MainWindowButton: View {
 private struct SkillsSettings: View {
     @EnvironmentObject var store: SiteStore
     @State private var enabled = Prefs.enabledSkills
+    @State private var showUpdates = false
 
     var body: some View {
         Form {
+            Section {
+                Button { showUpdates = true } label: {
+                    Label("Procurar atualizações no GitHub…", systemImage: "arrow.triangle.2.circlepath")
+                }
+            } header: {
+                Text("Atualizações")
+            } footer: {
+                Text("Vai ao GitHub só quando carregas, e mostra o que muda antes de aplicar. As skills atualizadas ficam na pasta de suporte da app e passam a todos os sites; as que editaste ficam guardadas em .wpcenter/skills-anteriores. O motor do impeccable continua a vir no build.")
+            }
+
             Section {
                 ForEach(AgentSkill.all) { skill in
                     Toggle(isOn: Binding(
@@ -1738,6 +1749,111 @@ private struct SkillsSettings: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showUpdates) { SkillUpdatesView() }
+    }
+}
+
+/// O painel do botão das Habilidades: mostra o que mudou no GitHub, por upstream, e só aplica se o utilizador mandar.
+struct SkillUpdatesView: View {
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var updater = SkillUpdater()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Atualizar as habilidades").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                Text("Do GitHub para a app e, depois, para todos os sites.").foregroundStyle(.secondary)
+            }
+
+            content
+
+            HStack(spacing: 8) {
+                if case .failed = updater.phase {
+                    Button("Tentar de novo") { Task { await updater.check() } }
+                }
+                Spacer()
+                Button(updater.phase == .done ? "Fechar" : "Cancelar") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(updater.phase == .checking || updater.phase == .applying)
+                if updater.phase == .ready {
+                    Button { Task { await updater.apply() } } label: { Text("Atualizar") }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(updater.changedSkills == 0)
+                }
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(width: 580)
+        .task { await updater.check() }
+        .onDisappear { updater.discardStaged() }
+        .interactiveDismissDisabled(updater.phase == .applying)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch updater.phase {
+        case .idle, .checking:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("A procurar no GitHub…")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .failed(let message):
+            ErrorText(message)
+        case .ready, .applying, .done:
+            VStack(alignment: .leading, spacing: 12) {
+                if updater.changedSkills == 0, updater.phase == .ready {
+                    Text("As habilidades já estão na versão mais recente.").foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(updater.upstreams) { upstream in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 6) {
+                                        Text(upstream.repo).font(.callout.weight(.semibold))
+                                        Text("\(upstream.from) → \(upstream.to)")
+                                            .font(.caption.monospaced()).foregroundStyle(.secondary)
+                                    }
+                                    ForEach(upstream.skills) { skill in
+                                        HStack(spacing: 8) {
+                                            Image(systemName: skill.changed ? "arrow.up.circle.fill" : "checkmark.circle")
+                                                .foregroundStyle(skill.changed ? Color.accentColor : Color.secondary)
+                                            Text(skill.title)
+                                            Spacer()
+                                            Text(skill.changed
+                                                 ? (skill.files == 1 ? L("1 ficheiro") : L("\(skill.files) ficheiros"))
+                                                 : L("sem alterações"))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        .font(.callout)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 320)
+                }
+
+                if updater.phase == .applying {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("A aplicar aos sites…")
+                    }
+                }
+
+                if updater.phase == .done, let summary = updater.summary {
+                    Text(summary.skills == 1
+                         ? L("1 habilidade atualizada. Os sites foram sincronizados.")
+                         : L("\(summary.skills) habilidades atualizadas. Os sites foram sincronizados."))
+                    if let warning = summary.engineWarning {
+                        Text(warning).font(.callout).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
     }
 }
 

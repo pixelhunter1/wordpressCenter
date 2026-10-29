@@ -37,11 +37,16 @@ if ( is_file( WP_CONTENT_DIR . '/db.php' ) && false !== strpos( (string) file_ge
 // O .mcp.json tem o endereço localhost e uma palavra-passe de aplicação deste Mac.
 $wpcenter_root       = str_replace( '\\', '/', rtrim( ABSPATH, '/\\' ) );
 $wpcenter_root_files = array( 'AGENTS.md', 'CLAUDE.md', 'WPCENTER.md', 'STUDIO.md', '.mcp.json', 'DESIGN.md', 'PRODUCT.md' );
+// Pastas na raiz que são da app: as cópias de skills que foram substituídas por uma versão nova.
+$wpcenter_root_dirs = array( '.wpcenter/' );
 
 // O WPvivid junta raiz e nome com "/" mesmo quando a raiz já termina em "/" (…/site//AGENTS.md): daí o "/+".
 add_filter(
 	'wpvivid_get_backup_exclude_regex',
-	function ( $regex, $type ) use ( $wpcenter_content, $wpcenter_local_only, $wpcenter_root, $wpcenter_root_files ) {
+	function ( $regex, $type ) use ( $wpcenter_content, $wpcenter_local_only, $wpcenter_root, $wpcenter_root_files, $wpcenter_root_dirs ) {
+		foreach ( $wpcenter_root_dirs as $dir ) {
+			$regex[] = '#^' . preg_quote( $wpcenter_root, '#' ) . '/+' . preg_quote( $dir, '#' ) . '#';
+		}
 		if ( WPVIVID_BACKUP_TYPE_CONTENT === $type ) {
 			foreach ( $wpcenter_local_only as $path ) {
 				$regex[] = '#^' . preg_quote( $wpcenter_content, '#' ) . '/+' . preg_quote( $path, '#' ) . '#';
