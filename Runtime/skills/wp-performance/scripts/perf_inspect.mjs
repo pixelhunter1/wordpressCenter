@@ -29,7 +29,7 @@ function runWp(cmdArgs, { pathArg, urlArg, allowRoot }) {
   if (urlArg) args.push(`--url=${urlArg}`);
   args.push(...cmdArgs);
 
-  const out = spawnSync("wpc", ["wp", ...args], { encoding: "utf8" }); // WP Center: o WP-CLI do site é o `wpc wp`
+  const out = spawnSync("wp", args, { encoding: "utf8" });
   return {
     ok: out.status === 0,
     status: out.status,

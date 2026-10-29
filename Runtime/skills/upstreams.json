@@ -1,0 +1,92 @@
+{
+  "format": 1,
+  "comment": "De onde vem cada skill de agente da app. O Scripts/update-skills.sh lê este ficheiro e é a única coisa que o altera; à mão, muda-se só o 'ref' para recuar para um commit antigo. 'id' é a pasta em Runtime/skills e em .claude|.agents/skills de cada site; 'path' é onde ela vive no repositório do upstream.",
+  "upstreams": {
+    "wordpress": {
+      "repo": "WordPress/agent-skills",
+      "ref": "eff3785fc28c4380d172094518c66a6a997c95d4",
+      "license": "GPL-2.0-or-later",
+      "skills": [
+        {
+          "id": "wordpress-router",
+          "path": "skills/wordpress-router"
+        },
+        {
+          "id": "wp-project-triage",
+          "path": "skills/wp-project-triage"
+        },
+        {
+          "id": "wp-plugin-development",
+          "path": "skills/wp-plugin-development"
+        },
+        {
+          "id": "wp-rest-api",
+          "path": "skills/wp-rest-api"
+        },
+        {
+          "id": "wp-wpcli-and-ops",
+          "path": "skills/wp-wpcli-and-ops"
+        },
+        {
+          "id": "wp-performance",
+          "path": "skills/wp-performance"
+        },
+        {
+          "id": "wp-phpstan",
+          "path": "skills/wp-phpstan"
+        }
+      ]
+    },
+    "studio": {
+      "repo": "Automattic/studio",
+      "ref": "8e8d07f48cb46ca20723e990aba8cd8bff119e52",
+      "license": "GPL-2.0-or-later",
+      "skills": [
+        {
+          "id": "need-for-speed",
+          "path": "packages/agent/node/skills/need-for-speed"
+        },
+        {
+          "id": "rank-me-up",
+          "path": "packages/agent/node/skills/rank-me-up"
+        }
+      ]
+    },
+    "mengto": {
+      "repo": "MengTo/Skills",
+      "ref": "a45892d2fdadab75b31fb16abecc02f101b31c43",
+      "license": "MIT",
+      "skills": [
+        {
+          "id": "no-ai-design-slop",
+          "path": "agent-skills/ui/no-ai-design-slop"
+        },
+        {
+          "id": "audit-ai-design-slop",
+          "path": "agent-skills/ui/audit-ai-design-slop"
+        },
+        {
+          "id": "animation-systems",
+          "path": "agent-skills/web-design/animation-systems"
+        }
+      ]
+    },
+    "impeccable": {
+      "repo": "pbakaus/impeccable",
+      "ref": "5e745ace7e151feb2a93d360d0281fe39448b857",
+      "license": "Apache-2.0",
+      "skills": [
+        {
+          "id": "impeccable",
+          "path": ".claude/skills/impeccable",
+          "engine": true
+        }
+      ],
+      "engine": {
+        "asset": "impeccable-darwin-arm64",
+        "install": "Vendor/impeccable",
+        "version": "0.1.18"
+      }
+    }
+  }
+}

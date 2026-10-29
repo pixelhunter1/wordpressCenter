@@ -135,6 +135,75 @@ enum SelfTest {
               "site antigo sem versão de PHP usa o PHP incluído")
         check(AgentSkill.all.allSatisfy { FileManager.default.fileExists(atPath: Runtime.skills.appendingPathComponent("\($0.id)/SKILL.md").path) },
               "todas as habilidades do catálogo vêm na app")
+        check(AgentSkill.all.allSatisfy { SiteStore.shared.skillDigests()[$0.id]?.count == 64 },
+              "cada habilidade do catálogo tem o seu carimbo")
+
+        // Atualizações das habilidades: a regra das duas fontes e os patches, sem tocar na rede.
+        do {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-skills-\(UUID().uuidString)")
+            let updatedSkills = root.appendingPathComponent("skills")
+            try FileManager.default.createDirectory(at: updatedSkills.appendingPathComponent("wp-rest-api"), withIntermediateDirectories: true)
+            try "novo".write(to: updatedSkills.appendingPathComponent("wp-rest-api/SKILL.md"), atomically: true, encoding: .utf8)
+
+            var manifest = try SkillUpdater.bundleManifest()
+            manifest.fetchedAt = "2999-01-01T00:00:00Z"
+            try SkillUpdater.write(manifest, to: updatedSkills.appendingPathComponent("upstreams.json"))
+            let newer = SiteStore(storage: root)
+            check(newer.skillSource("wp-rest-api").path.hasPrefix(updatedSkills.path)
+                  && newer.skillSource("wp-center").path.hasPrefix(Runtime.skills.path),
+                  "a cópia atualizada ganha ao pacote; a skill da app continua a vir do pacote")
+
+            manifest.fetchedAt = "2000-01-01T00:00:00Z"
+            try SkillUpdater.write(manifest, to: updatedSkills.appendingPathComponent("upstreams.json"))
+            let older = SiteStore(storage: root)
+            check(older.skillSource("wp-rest-api").path.hasPrefix(Runtime.skills.path)
+                  && !FileManager.default.fileExists(atPath: updatedSkills.path),
+                  "um pacote mais recente ganha, e a cópia velha é deitada fora")
+
+            let staging = root.appendingPathComponent("staging")
+            try FileManager.default.createDirectory(at: staging.appendingPathComponent("wp-performance/scripts"), withIntermediateDirectories: true)
+            try "const out = spawnSync(\"wp\", args, { encoding: \"utf8\" });\n"
+                .write(to: staging.appendingPathComponent("wp-performance/scripts/perf_inspect.mjs"), atomically: true, encoding: .utf8)
+            try SkillUpdater.applyPatches(to: staging.appendingPathComponent("wp-performance"), id: "wp-performance")
+            try SkillUpdater.applyPatches(to: staging.appendingPathComponent("wp-performance"), id: "wp-performance") // a segunda vez não pode estragar nem falhar
+            let inspect = try String(contentsOf: staging.appendingPathComponent("wp-performance/scripts/perf_inspect.mjs"), encoding: .utf8)
+            check(inspect.contains("spawnSync(\"wpc\""),
+                  "depois de uma atualização, a app volta a aplicar as correções locais")
+
+            let same = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-center"),
+                                                 to: Runtime.skills.appendingPathComponent("wp-center"))
+            check(!same.changed && same.files == 0, "uma skill igual a si mesma não conta como alterada")
+
+            // Regressão: o enumerador devolve /private/var/… para uma raiz em /var/… — uma cópia igual à origem na
+            // pasta temporária (onde os tarballs são abertos) não pode parecer toda diferente.
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-skill-copy-\(UUID().uuidString)")
+            try FileManager.default.copyItem(at: Runtime.skills.appendingPathComponent("wp-center"), to: copy)
+            let copied = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-center"), to: copy)
+            check(!copied.changed && copied.files == 0,
+                  "uma cópia igual à origem, na pasta temporária, não conta como alterada")
+            try? FileManager.default.removeItem(at: copy)
+
+            // E uma cópia ainda sem os nossos patches, depois de corrigida, tem de ficar igual à do pacote — é isso
+            // que faz a verificação dizer "sem alterações" numa skill que temos patch.
+            let rules = try JSONDecoder().decode(SkillPatchRules.self,
+                                                 from: Data(contentsOf: Runtime.skills.appendingPathComponent("patches.json")))
+            let unpatched = root.appendingPathComponent("unpatched/wp-performance")
+            try FileManager.default.createDirectory(at: unpatched.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: Runtime.skills.appendingPathComponent("wp-performance"), to: unpatched)
+            for rule in rules.patches where rule.skill == "wp-performance" {
+                let file = unpatched.appendingPathComponent(rule.file)
+                let text = try String(contentsOf: file, encoding: .utf8)
+                try text.replacingOccurrences(of: rule.replace, with: rule.find).write(to: file, atomically: true, encoding: .utf8)
+            }
+            try SkillUpdater.applyPatches(to: unpatched, id: "wp-performance")
+            let converged = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-performance"), to: unpatched)
+            check(!converged.changed && converged.files == 0,
+                  "depois dos patches, uma cópia do upstream fica igual à do pacote")
+
+            try? FileManager.default.removeItem(at: root)
+        } catch {
+            check(false, "atualizações das habilidades: \(error.localizedDescription)")
+        }
         let ident = SiteStore.cpanelStyleIdentifier(), pass = SiteStore.strongPassword()
         check(ident.hasPrefix("wpc_") && ident.count <= 32 && DatabaseConfig.isValidIdentifier(ident)
               && ident.filter { $0 == "_" }.count == 1 && ident != SiteStore.cpanelStyleIdentifier(),
@@ -247,6 +316,19 @@ enum SelfTest {
             check(skillExists("/.claude/skills/wp-rest-api/SKILL.md") && skillExists("/.agents/skills/wp-rest-api/SKILL.md")
                   && !skillExists("/.claude/skills/rank-me-up") && !skillExists("/.agents/skills/rank-me-up"),
                   "habilidade desligada sai do site; as ativas ficam")
+
+            // Atualização: uma skill editada e com carimbo antigo é substituída, e a edição fica guardada ao lado.
+            let bundled = site.folder.appendingPathComponent(".claude/skills/wp-rest-api")
+            try "editado pelo utilizador".write(to: bundled.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+            try "carimbo antigo".write(to: bundled.appendingPathComponent(skillStampFileName), atomically: true, encoding: .utf8)
+            store.syncSkills(for: site, enabled: Set(AgentSkill.all.map(\.id)))
+            let backup = site.folder.appendingPathComponent(".wpcenter/skills-anteriores/wp-rest-api")
+            check((try? String(contentsOf: backup.appendingPathComponent("SKILL.md"), encoding: .utf8)) == "editado pelo utilizador"
+                  && (try? String(contentsOf: bundled.appendingPathComponent(skillStampFileName), encoding: .utf8))
+                        == SiteStore.shared.skillDigests()["wp-rest-api"]
+                  && (try? String(contentsOf: bundled.appendingPathComponent("SKILL.md"), encoding: .utf8))
+                        == (try? String(contentsOf: Runtime.skills.appendingPathComponent("wp-rest-api/SKILL.md"), encoding: .utf8)),
+                  "skill editada fica guardada ao lado e o site recebe a versão do pacote")
             let agents = site.folder.appendingPathComponent("AGENTS.md"), guide = site.folder.appendingPathComponent("WPCENTER.md")
             try "editado".write(to: agents, atomically: true, encoding: .utf8)
             try "antigo".write(to: guide, atomically: true, encoding: .utf8)

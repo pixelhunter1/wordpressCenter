@@ -48,25 +48,42 @@ cp Runtime/router.php Runtime/db-check.php Runtime/wpvivid-export.php Runtime/wp
 cp "$MAILPIT" "$R/mailpit" && chmod u+w "$R/mailpit"
 cp "$CLOUDFLARED" "$R/cloudflared" && chmod u+w "$R/cloudflared"
 
-# Skills para agentes de IA: só as que não dependem de ferramentas do Studio nem do WordPress.com.
+# Skills para agentes de IA: todas vivem no repositório, com o commit de cada upstream fixado no
+# Runtime/skills/upstreams.json. Atualizam-se com Scripts/update-skills.sh; o build não vai à rede.
 mkdir -p "$R/skills"
-for s in need-for-speed rank-me-up; do cp -R "$STUDIO/cli/skills/$s" "$R/skills/"; done
-# Habilidades de WordPress (WordPress/agent-skills, GPL). A studio-cli fica de fora: o WPCENTER.md ensina o `wpc`.
-for s in wp-plugin-development wp-rest-api wp-wpcli-and-ops; do
-  cp -R "$STUDIO/cli/wp-files/skills/$s" "$R/skills/"
-done
-# A wp-center (nossa) e as do WordPress/agent-skills que o Studio não traz vivem no repositório (Runtime/skills/README.md).
 cp -R Runtime/skills/. "$R/skills/"
 # Motor do impeccable compilado do código (Vendor/impeccable, fora do git): sem ele o lançador da skill descarregava-o do GitHub.
+engine_version=""
 if [[ -x Vendor/impeccable/impeccable ]]; then
   mkdir -p "$R/skills/impeccable/scripts/bin/darwin-arm64"
   cp Vendor/impeccable/impeccable "$R/skills/impeccable/scripts/bin/darwin-arm64/"
+  engine_version=$(Vendor/impeccable/impeccable engine-probe 2>/dev/null | awk '{print $2}')
 else
-  echo "Aviso: Vendor/impeccable/impeccable em falta (Runtime/skills/README.md); a skill impeccable funciona sem o motor."
+  echo "Aviso: Vendor/impeccable/impeccable em falta (corra Scripts/update-skills.sh); a skill impeccable funciona sem o motor."
 fi
-sed -i '' -e 's/ (auto-submitted to WordPress.com)//' \
-  -e 's/local Studio site, so this is purely about preparing the site for production\..*/local WP Center site, so this is purely about preparing the site for production (migrated to cPanel with WPvivid)./' \
-  "$R/skills/rank-me-up/SKILL.md"
+
+# Carimbo do pacote: a app compara esta data com a da última atualização que ela própria trouxe para
+# Application Support, e usa a mais recente das duas. A versão do motor vai junto, para a app poder dizer
+# "esta skill pede um motor mais novo do que o que trazes".
+python3 - "$R/skills/upstreams.json" "$engine_version" <<'PY'
+import datetime, json, sys
+path, engine = sys.argv[1], sys.argv[2]
+doc = json.load(open(path))
+doc["builtAt"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+if engine and "impeccable" in doc["upstreams"]:
+    doc["upstreams"]["impeccable"].setdefault("engine", {})["version"] = engine
+with open(path, "w") as f:
+    json.dump(doc, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
+
+# Patches locais às skills do upstream, a partir de Runtime/skills/patches.json — as mesmas regras que a app
+# aplica depois de trazer uma versão nova. Cada uma falha alto se o alvo desapareceu: uma skill meio corrigida
+# é pior do que um build que para.
+# Patches locais às skills do upstream, a partir de Runtime/skills/patches.json — as mesmas regras que a app aplica
+# depois de trazer uma versão nova, com o caminho relativo à pasta de cada skill. O patch-skill.pl para (e diz qual)
+# quando o ficheiro ou o texto a corrigir já não existem: uma skill meio corrigida é pior do que um build que falha.
+perl Scripts/patch-skill.pl --json Runtime/skills/patches.json "$R/skills"
 
 ICONSET=$(mktemp -d)/AppIcon.iconset
 mkdir -p "$ICONSET"

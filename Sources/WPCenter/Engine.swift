@@ -1,10 +1,14 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Security
 
-/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio
-/// e de Runtime/skills: a wp-center (nossa), as do WordPress/agent-skills que o Studio não traz e as de design
-/// (impeccable e MengTo/Skills).
+/// Carimbo que a app deixa dentro de cada skill copiada para um site: o digest da pasta que lá pousou.
+let skillStampFileName = ".wpcenter-version"
+
+/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). Todas vivem em
+/// Runtime/skills, com o commit de cada upstream fixado no upstreams.json: a wp-center (nossa), as do
+/// WordPress/agent-skills, as do Studio e as de design (impeccable e MengTo/Skills).
 struct AgentSkill: Identifiable {
     let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
     let title: String
@@ -30,6 +34,9 @@ struct AgentSkill: Identifiable {
     /// Já estiveram no catálogo: a app apaga-as dos sites. Os sites usam temas clássicos (blocos e theme.json só confundiam
     /// os agentes) e a visual-design do Studio dependia de ferramentas do Studio; o design é do impeccable.
     static let retired = ["wp-block-development", "wp-block-themes", "visual-design"]
+
+    /// O título de uma skill pelo id, para sítios que só têm o id (o painel de atualizações).
+    static func title(of id: String) -> String { all.first { $0.id == id }?.title ?? id }
 }
 
 /// Texto traduzido para a língua do Mac (en.lproj; em português a própria chave).
@@ -301,6 +308,73 @@ final class SiteStore: ObservableObject {
             sites = (try? Self.decoder.decode([Site].self, from: data)) ?? []
         }
         known = Set(sites.map(\.id))
+        reconcileSkills()
+    }
+
+    // MARK: Skills: o pacote e a cópia atualizada (SkillUpdates.swift)
+
+    /// Onde o botão de atualização guarda o que trouxe do GitHub: o pacote da app é assinado e só de leitura.
+    var appSupportSkills: URL { storage.appendingPathComponent("skills") }
+
+    /// A raiz das skills que a app usa agora. A cópia atualizada ganha ao pacote, mas só enquanto for mais recente
+    /// do que o build — um pacote novo traz o que já vem com ele, e uma cópia velha não deve ganhar-lhe.
+    var skillsRoot: URL {
+        guard let fetched = (try? SkillUpdater.manifest(at: appSupportSkills.appendingPathComponent("upstreams.json")))?.fetchedAt,
+              let built = (try? SkillUpdater.bundleManifest())?.builtAt,
+              fetched > built
+        else { return Runtime.skills }
+        return appSupportSkills
+    }
+
+    /// A pasta de onde esta skill vem agora (a cópia atualizada, se houver e se ganhar).
+    func skillSource(_ id: String) -> URL {
+        let updated = skillsRoot.appendingPathComponent(id)
+        if skillsRoot != Runtime.skills,
+           FileManager.default.fileExists(atPath: updated.appendingPathComponent("SKILL.md").path) {
+            return updated
+        }
+        return Runtime.skills.appendingPathComponent(id)
+    }
+
+    /// Digest do conteúdo de cada skill da fonte que está a valer. Recalculado depois de uma atualização.
+    private var sourceDigests: [String: String] = [:]
+    func skillDigests() -> [String: String] {
+        if sourceDigests.isEmpty {
+            for skill in AgentSkill.all { sourceDigests[skill.id] = Self.skillDigest(skillSource(skill.id)) }
+        }
+        return sourceDigests
+    }
+
+    /// Depois de uma atualização: carimbos novos, e todos os sites passam a ter o que mudou. Devolve o aviso do
+    /// motor do impeccable, quando a skill nova pede um mais recente do que o que a app traz.
+    func updateSkillsEverywhere() -> String? {
+        sourceDigests = [:]
+        syncSkillsInAllSites()
+        return engineVersionWarning()
+    }
+
+    /// A versão do motor que a app traz (carimbada pelo build no manifesto) e a que a skill agora pede
+    /// (`scripts/VERSION`). O motor vai no build: se a skill andar mais depressa, é preciso compilar de novo.
+    func engineVersionWarning() -> String? {
+        guard let installed = (try? SkillUpdater.bundleManifest())?.engineVersion,
+              let wanted = try? String(contentsOf: skillSource("impeccable").appendingPathComponent("scripts/VERSION"), encoding: .utf8)
+        else { return nil }
+        let wantedVersion = wanted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wantedVersion.isEmpty,
+              wantedVersion.compare(installed, options: .numeric) == .orderedDescending
+        else { return nil }
+        return L("A skill impeccable pede o motor \(wantedVersion) e a app traz o \(installed). Compile uma versão nova para ela poder usar os comandos mais recentes.")
+    }
+
+    /// Uma cópia atualizada que um build mais recente já substituiu não fica a apodrecer em Application Support.
+    private func reconcileSkills() {
+        let manifest = appSupportSkills.appendingPathComponent("upstreams.json")
+        guard FileManager.default.fileExists(atPath: manifest.path) else { return }
+        guard let fetched = (try? SkillUpdater.manifest(at: manifest))?.fetchedAt,
+              let built = (try? SkillUpdater.bundleManifest())?.builtAt,
+              built >= fetched
+        else { return }
+        try? FileManager.default.removeItem(at: appSupportSkills)
     }
 
     /// Ids que este processo já conheceu: um site em disco fora deste conjunto foi criado por outro processo (app ↔ `wpc`).
@@ -499,23 +573,52 @@ final class SiteStore: ObservableObject {
         syncSkills(for: site)
     }
 
-    /// Copia para o site as habilidades ativas que faltam e apaga as desligadas, como o Studio.
-    /// Só mexe nas do catálogo: habilidades que o utilizador tenha posto no site ficam intactas.
+    /// Copia para o site as habilidades ativas do catálogo e atualiza as que o pacote mudou desde a última vez.
+    /// Só mexe nas do catálogo: as que o utilizador pôs no site ficam intactas. Se ele editou uma do catálogo, a
+    /// pasta é substituída na mesma — mas o que lá estava fica guardado em `.wpcenter/skills-anteriores/<id>`.
+    /// O carimbo `.wpcenter-version` é o digest da pasta que a app pôs lá: igual ao do pacote, não há nada a fazer.
     func syncSkills(for site: Site, enabled: Set<String> = Prefs.enabledSkills) {
         let fm = FileManager.default
+        let digests = skillDigests()
         for dir in [".claude/skills", ".agents/skills"] {
             let target = site.folder.appendingPathComponent(dir)
             try? fm.createDirectory(at: target, withIntermediateDirectories: true)
             for id in AgentSkill.retired { try? fm.removeItem(at: target.appendingPathComponent(id)) }
             for skill in AgentSkill.all {
                 let dest = target.appendingPathComponent(skill.id)
-                if !enabled.contains(skill.id) {
+                guard enabled.contains(skill.id) else { try? fm.removeItem(at: dest); continue }
+                let source = skillSource(skill.id)
+                guard fm.fileExists(atPath: source.path), let digest = digests[skill.id] else { continue }
+                let stamp = (try? String(contentsOf: dest.appendingPathComponent(skillStampFileName), encoding: .utf8))?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if stamp == digest { continue }
+                if fm.fileExists(atPath: dest.path) {
+                    // Só há cópia ao lado quando o conteúdo não é o que a app pôs ali (uma edição do utilizador).
+                    // Uma versão antiga do pacote não conta: essa é só substituída. A cópia vive fora da pasta de
+                    // skills, senão o agente carregava duas versões da mesma habilidade.
+                    if stamp != Self.skillDigest(dest) {
+                        let backup = site.folder.appendingPathComponent(".wpcenter/skills-anteriores/\(skill.id)")
+                        try? fm.createDirectory(at: backup.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try? fm.removeItem(at: backup)
+                        try? fm.copyItem(at: dest, to: backup)
+                    }
                     try? fm.removeItem(at: dest)
-                } else if !fm.fileExists(atPath: dest.path) {
-                    try? fm.copyItem(at: Runtime.skills.appendingPathComponent(skill.id), to: dest)
                 }
+                try? fm.copyItem(at: source, to: dest)
+                try? digest.write(to: dest.appendingPathComponent(skillStampFileName), atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    /// Identidade de uma pasta de skill: os caminhos por ordem, cada um seguido do conteúdo. O carimbo da própria
+    /// app não entra — senão a pasta deixava de se reconhecer a si mesma depois de carimbada.
+    nonisolated static func skillDigest(_ folder: URL) -> String {
+        var content = Data()
+        for relative in SkillUpdater.relativeFiles(in: folder) {
+            content.append(Data((relative + "\u{0}").utf8))
+            content.append((try? Data(contentsOf: folder.appendingPathComponent(relative))) ?? Data())
+        }
+        return SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Depois de ligar/desligar uma habilidade nas Definições: aplica a todos os sites.
