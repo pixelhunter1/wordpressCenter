@@ -31,7 +31,9 @@ sites section. It renders and collects input; it decides nothing.
   upstream, the commit it is on and the commit it would move to, with what changes per skill; nothing is fetched
   beyond that click and nothing is applied until the user confirms (`agent-files`). When the check finds nothing to
   apply, the sheet says so and offers only to close — no disabled **Atualizar** next to it, because two buttons for
-  one state read as a contradiction.
+  one state read as a contradiction. The closing button carries the role of the state: **Cancelar** (Escape, quiet)
+  while a list of changes is waiting for confirmation, **OK** (Return, accented — the window's default action, as in
+  every other sheet of the app) when there is nothing to cancel.
 - **The menu bar extra is optional** (`Prefs.showMenuBarKey`), for starting and stopping a site without the window;
   the window keeps the site list, the commands (⌘N for a new site) and the settings.
 

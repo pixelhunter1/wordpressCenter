@@ -1772,8 +1772,7 @@ struct SkillUpdatesView: View {
                     Button("Tentar de novo") { Task { await updater.check() } }
                 }
                 Spacer()
-                Button(dismissTitle) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                dismissButton
                     .disabled(updater.phase == .checking || updater.phase == .applying)
                 // Só quando há o que aplicar: um botão "Atualizar" ao lado de "já está na versão mais recente"
                 // era o que fazia duvidar de qual dos dois valia.
@@ -1792,16 +1791,32 @@ struct SkillUpdatesView: View {
         .interactiveDismissDisabled(updater.phase == .applying)
     }
 
-    /// **Cancelar** só enquanto há o que cancelar: a lista de alterações à espera de confirmação, ou uma aplicação a
-    /// decorrer. Sem nada a aplicar — tudo já atualizado, concluído, erro — o botão é um **OK**, porque não se está a
-    /// desistir de nada.
-    private var dismissTitle: LocalizedStringKey {
-        switch updater.phase {
-        case .ready: return updater.changedSkills > 0 ? "Cancelar" : "OK"
-        case .applying: return "Cancelar"
-        case .idle, .checking, .done, .failed: return "OK"
+    /// O fecho do painel tem dois papéis, e cada um pede a sua tecla e o seu estilo: **Cancelar** desiste de uma
+    /// lista de alterações (Escape, discreto) e **OK** confirma que já está tudo tratado (Return, realçado) — como o
+    /// botão principal de todos os outros painéis da app. Sem nada a cancelar, um Cancelar cinzento não é uma ação.
+    @ViewBuilder private var dismissButton: some View {
+        if dismissIsDefault {
+            Button(dismissTitle) { dismiss() }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+        } else {
+            Button(dismissTitle) { dismiss() }
+                .keyboardShortcut(.cancelAction)
         }
     }
+
+    /// **Cancelar** só enquanto há o que cancelar: a lista de alterações à espera de confirmação, ou uma aplicação a
+    /// decorrer. Sem nada a aplicar — tudo já atualizado, concluído, erro — o botão é o **OK** por omissão; durante a
+    /// procura fica OK mas desativado, como já estava.
+    private var dismissIsDefault: Bool {
+        switch updater.phase {
+        case .ready: return updater.changedSkills == 0
+        case .applying: return false
+        case .idle, .checking, .done, .failed: return true
+        }
+    }
+
+    private var dismissTitle: LocalizedStringKey { dismissIsDefault ? "OK" : "Cancelar" }
 
     @ViewBuilder private var content: some View {
         switch updater.phase {
