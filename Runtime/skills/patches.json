@@ -1,0 +1,23 @@
+{
+  "comment": "Correções nossas a ficheiros que vêm do upstream. Aplicadas em dois sítios, a partir deste mesmo ficheiro: o build (Scripts/patch-skill.pl) e a app, depois de trazer uma versão nova (SkillUpdates.swift). Substituição de texto exata: se o alvo desaparecer, falha em vez de deixar a skill meio corrigida.",
+  "patches": [
+    {
+      "file": "wp-performance/scripts/perf_inspect.mjs",
+      "find": "spawnSync(\"wp\", args,",
+      "replace": "spawnSync(\"wpc\", [\"wp\", ...args],",
+      "why": "O WP-CLI do site é o `wpc wp`. Um `wp` de sistema falaria com outra base de dados."
+    },
+    {
+      "file": "rank-me-up/SKILL.md",
+      "find": " (auto-submitted to WordPress.com)",
+      "replace": "",
+      "why": "O site é local: não há submissão a serviço nenhum."
+    },
+    {
+      "file": "rank-me-up/SKILL.md",
+      "find": "local Studio site, so this is purely about preparing the site for production. Pair fixes with `site_push` or `preview_create` to validate on a public URL.",
+      "replace": "local WP Center site, so this is purely about preparing the site for production (migrated to cPanel with WPvivid).",
+      "why": "Tira ferramentas do Studio que aqui não existem."
+    }
+  ]
+}
