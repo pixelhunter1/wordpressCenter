@@ -37,6 +37,7 @@ struct SkillManifest: Codable {
 /// pela app, a partir deste mesmo ficheiro.
 struct SkillPatchRules: Decodable {
     struct Rule: Decodable {
+        let skill: String
         let file: String
         let find: String
         let replace: String
@@ -118,6 +119,9 @@ final class SkillUpdater: ObservableObject {
                     guard FileManager.default.fileExists(atPath: to.path) else {
                         throw AppError("Em \(upstream.repo) já não existe \(item.path).")
                     }
+                    // Compara-se o que vai ser instalado, correções incluídas: sem isto as skills que temos patches
+                    // (rank-me-up, wp-performance) apareciam sempre como diferentes.
+                    try Self.applyPatches(to: to, id: item.id)
                     let difference = Self.changedFiles(from: from, to: to)
                     skills.append(SkillChange(skill: item.id, title: AgentSkill.title(of: item.id),
                                               changed: difference.changed, files: difference.files))
@@ -154,6 +158,8 @@ final class SkillUpdater: ObservableObject {
                     let target = destination.appendingPathComponent(item.id)
                     try? FileManager.default.removeItem(at: target)
                     try FileManager.default.copyItem(at: source, to: target)
+                    Self.carryBundledExtras(from: item.id, to: target)
+                    try Self.applyPatches(to: target, id: item.id)
                     // Atribuição: a licença do upstream viaja com a skill, como no Scripts/update-skills.sh.
                     for legal in ["LICENSE", "NOTICE.md"] {
                         let from = staged.root.appendingPathComponent(legal)
@@ -168,11 +174,12 @@ final class SkillUpdater: ObservableObject {
                 manifest.upstreams[staged.key] = upstream
             }
 
-            try Self.applyPatches(in: destination)
             try Self.write(manifest, to: destination.appendingPathComponent("upstreams.json"))
 
             let warning = store.updateSkillsEverywhere()
             summary = Summary(skills: copied, engineWarning: warning)
+            // A lista era do que ia mudar: aplicada, fica só o resumo — senão o painel continuava a pedir atualizar.
+            upstreams = []
             phase = .done
             discardStaged()
         } catch {
@@ -206,24 +213,38 @@ final class SkillUpdater: ObservableObject {
         try encoder.encode(manifest).write(to: file, options: .atomic)
     }
 
-    /// As nossas correções, iguais às que o build aplica (`Runtime/skills/patches.json`). Um alvo que desapareceu
-    /// é um erro, não um aviso: uma skill meio corrigida é pior do que uma atualização que não se fez.
-    nonisolated static func applyPatches(in root: URL) throws {
+    /// As nossas correções a uma skill, iguais às que o build aplica (`Runtime/skills/patches.json`). O caminho de
+    /// cada regra é relativo à pasta da skill, para servir tanto a cópia que a app guarda como a que acabou de trazer
+    /// do GitHub (que no tarball está a outra profundidade). Um alvo que desapareceu é um erro, não um aviso: uma skill
+    /// meio corrigida é pior do que uma atualização que não se fez. Aplicar duas vezes não estraga nada.
+    nonisolated static func applyPatches(to skillFolder: URL, id: String) throws {
         let file = Runtime.skills.appendingPathComponent("patches.json")
         guard let data = try? Data(contentsOf: file) else { return }
         let rules = try JSONDecoder().decode(SkillPatchRules.self, from: data)
-        for rule in rules.patches {
-            let target = root.appendingPathComponent(rule.file)
-            guard let text = try? String(contentsOf: target, encoding: .utf8) else { continue }
+        for rule in rules.patches where rule.skill == id {
+            let target = skillFolder.appendingPathComponent(rule.file)
+            guard let text = try? String(contentsOf: target, encoding: .utf8) else {
+                throw AppError("A correção local a \(id)/\(rule.file) não encontrou o ficheiro.")
+            }
             if text.contains(rule.find) {
                 try text.replacingOccurrences(of: rule.find, with: rule.replace)
                     .write(to: target, atomically: true, encoding: .utf8)
             } else if !rule.replace.isEmpty, text.contains(rule.replace) {
-                continue // já estava corrigido: aplicar duas vezes não estraga nada
+                continue // já estava corrigido
             } else {
-                throw AppError("A correção local a \(rule.file) já não encontra o que corrige.")
+                throw AppError("A correção local a \(id)/\(rule.file) já não encontra o que corrige.")
             }
         }
+    }
+
+    /// O que é nosso e não vem do upstream viaja com a cópia: o binário do motor do impeccable, que o pacote traz e o
+    /// tarball não. Sem isto, uma skill atualizada ficava sem motor e o lançador iria buscá-lo ao GitHub.
+    nonisolated static func carryBundledExtras(from id: String, to target: URL) {
+        let bundled = Runtime.skills.appendingPathComponent(id).appendingPathComponent("scripts/bin")
+        guard FileManager.default.fileExists(atPath: bundled.path) else { return }
+        let destination = target.appendingPathComponent("scripts/bin")
+        try? FileManager.default.removeItem(at: destination)
+        try? FileManager.default.copyItem(at: bundled, to: destination)
     }
 
     // MARK: - Rede (só aqui)
@@ -275,20 +296,31 @@ final class SkillUpdater: ObservableObject {
 
     // MARK: - Comparar
 
+    /// Caminhos relativos dos ficheiros de uma pasta, ordenados e sem o carimbo da app.
+    ///
+    /// `subpathsOfDirectory` e não `enumerator`: o enumerador devolve `/private/var/…` para uma raiz em `/var/…`
+    /// (a pasta temporária, onde os tarballs são abertos), e cortar o prefixo ao caminho dava um relativo partido —
+    /// o que fazia toda a skill parecer diferente de si mesma em cada verificação.
+    nonisolated static func relativeFiles(in folder: URL) -> [String] {
+        guard let all = try? FileManager.default.subpathsOfDirectory(atPath: folder.path) else { return [] }
+        var paths: [String] = []
+        for relative in all where relative != skillStampFileName {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: folder.appendingPathComponent(relative).path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue
+            else { continue }
+            paths.append(relative)
+        }
+        return paths.sorted()
+    }
+
     /// Se a cópia nova muda alguma coisa e em quantos ficheiros. A licença e o carimbo da app não contam: não vêm
     /// do upstream ou são nossos.
     nonisolated static func changedFiles(from: URL, to: URL) -> (changed: Bool, files: Int) {
         func files(_ root: URL) -> Set<String> {
-            var paths: Set<String> = []
-            let keys: [URLResourceKey] = [.isRegularFileKey]
-            guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return paths }
-            for case let file as URL in walk {
-                guard (try? file.resourceValues(forKeys: Set(keys)))?.isRegularFile == true else { continue }
-                let relative = String(file.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                guard relative != skillStampFileName, relative != "LICENSE", relative != "NOTICE.md" else { continue }
-                paths.insert(relative)
-            }
-            return paths
+            Set(relativeFiles(in: root).filter {
+                $0 != "LICENSE" && $0 != "NOTICE.md" && !$0.hasPrefix("scripts/bin/")
+            })
         }
         let before = files(from), after = files(to)
         var different = before.symmetricDifference(after).count

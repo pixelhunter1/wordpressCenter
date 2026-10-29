@@ -6,15 +6,16 @@ import Security
 /// Carimbo que a app deixa dentro de cada skill copiada para um site: o digest da pasta que lá pousou.
 let skillStampFileName = ".wpcenter-version"
 
-/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). O build.sh copia-as do Studio
-/// e de Runtime/skills: a wp-center (nossa), as do WordPress/agent-skills que o Studio não traz e as de design
-/// (impeccable e MengTo/Skills).
+/// Habilidades para agentes de IA copiadas para cada site (Definições → Habilidades). Todas vivem em
+/// Runtime/skills, com o commit de cada upstream fixado no upstreams.json: a wp-center (nossa), as do
+/// WordPress/agent-skills, as do Studio e as de design (impeccable e MengTo/Skills).
 struct AgentSkill: Identifiable {
     let id: String // nome da pasta em runtime/skills e em .claude|.agents/skills
     let title: String
     let summary: String
 
-    static let all = [        AgentSkill(id: "wp-center", title: L("WP Center e cPanel"), summary: L("wpc, emails no Mailpit, colações e exportação para o cPanel")),
+    static let all = [
+        AgentSkill(id: "wp-center", title: L("WP Center e cPanel"), summary: L("wpc, emails no Mailpit, colações e exportação para o cPanel")),
         AgentSkill(id: "wordpress-router", title: L("Encaminhamento WordPress"), summary: L("Classifica o projeto e escolhe a habilidade certa")),
         AgentSkill(id: "wp-project-triage", title: L("Diagnóstico do projeto"), summary: L("Relatório do tipo de projeto, ferramentas e testes")),
         AgentSkill(id: "wp-plugin-development", title: L("Desenvolvimento de plugins"), summary: L("Hooks, Settings API, segurança e empacotamento")),
@@ -574,7 +575,7 @@ final class SiteStore: ObservableObject {
 
     /// Copia para o site as habilidades ativas do catálogo e atualiza as que o pacote mudou desde a última vez.
     /// Só mexe nas do catálogo: as que o utilizador pôs no site ficam intactas. Se ele editou uma do catálogo, a
-    /// pasta é substituída na mesma — mas o que lá estava fica ao lado, em `<id>.anterior`.
+    /// pasta é substituída na mesma — mas o que lá estava fica guardado em `.wpcenter/skills-anteriores/<id>`.
     /// O carimbo `.wpcenter-version` é o digest da pasta que a app pôs lá: igual ao do pacote, não há nada a fazer.
     func syncSkills(for site: Site, enabled: Set<String> = Prefs.enabledSkills) {
         let fm = FileManager.default
@@ -612,20 +613,10 @@ final class SiteStore: ObservableObject {
     /// Identidade de uma pasta de skill: os caminhos por ordem, cada um seguido do conteúdo. O carimbo da própria
     /// app não entra — senão a pasta deixava de se reconhecer a si mesma depois de carimbada.
     nonisolated static func skillDigest(_ folder: URL) -> String {
-        var files: [(String, URL)] = []
-        let keys: Set<URLResourceKey> = [.isRegularFileKey]
-        if let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys), options: []) {
-            for case let file as URL in walk {
-                guard (try? file.resourceValues(forKeys: keys))?.isRegularFile == true else { continue }
-                let relative = String(file.path.dropFirst(folder.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                guard relative != skillStampFileName else { continue }
-                files.append((relative, file))
-            }
-        }
         var content = Data()
-        for (relative, file) in files.sorted(by: { $0.0 < $1.0 }) {
+        for relative in SkillUpdater.relativeFiles(in: folder) {
             content.append(Data((relative + "\u{0}").utf8))
-            content.append((try? Data(contentsOf: file)) ?? Data())
+            content.append((try? Data(contentsOf: folder.appendingPathComponent(relative))) ?? Data())
         }
         return SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined()
     }

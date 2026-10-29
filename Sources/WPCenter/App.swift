@@ -164,8 +164,8 @@ enum SelfTest {
             try FileManager.default.createDirectory(at: staging.appendingPathComponent("wp-performance/scripts"), withIntermediateDirectories: true)
             try "const out = spawnSync(\"wp\", args, { encoding: \"utf8\" });\n"
                 .write(to: staging.appendingPathComponent("wp-performance/scripts/perf_inspect.mjs"), atomically: true, encoding: .utf8)
-            try SkillUpdater.applyPatches(in: staging)
-            try SkillUpdater.applyPatches(in: staging) // a segunda vez não pode estragar nem falhar
+            try SkillUpdater.applyPatches(to: staging.appendingPathComponent("wp-performance"), id: "wp-performance")
+            try SkillUpdater.applyPatches(to: staging.appendingPathComponent("wp-performance"), id: "wp-performance") // a segunda vez não pode estragar nem falhar
             let inspect = try String(contentsOf: staging.appendingPathComponent("wp-performance/scripts/perf_inspect.mjs"), encoding: .utf8)
             check(inspect.contains("spawnSync(\"wpc\""),
                   "depois de uma atualização, a app volta a aplicar as correções locais")
@@ -173,6 +173,32 @@ enum SelfTest {
             let same = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-center"),
                                                  to: Runtime.skills.appendingPathComponent("wp-center"))
             check(!same.changed && same.files == 0, "uma skill igual a si mesma não conta como alterada")
+
+            // Regressão: o enumerador devolve /private/var/… para uma raiz em /var/… — uma cópia igual à origem na
+            // pasta temporária (onde os tarballs são abertos) não pode parecer toda diferente.
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("wpcenter-skill-copy-\(UUID().uuidString)")
+            try FileManager.default.copyItem(at: Runtime.skills.appendingPathComponent("wp-center"), to: copy)
+            let copied = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-center"), to: copy)
+            check(!copied.changed && copied.files == 0,
+                  "uma cópia igual à origem, na pasta temporária, não conta como alterada")
+            try? FileManager.default.removeItem(at: copy)
+
+            // E uma cópia ainda sem os nossos patches, depois de corrigida, tem de ficar igual à do pacote — é isso
+            // que faz a verificação dizer "sem alterações" numa skill que temos patch.
+            let rules = try JSONDecoder().decode(SkillPatchRules.self,
+                                                 from: Data(contentsOf: Runtime.skills.appendingPathComponent("patches.json")))
+            let unpatched = root.appendingPathComponent("unpatched/wp-performance")
+            try FileManager.default.createDirectory(at: unpatched.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: Runtime.skills.appendingPathComponent("wp-performance"), to: unpatched)
+            for rule in rules.patches where rule.skill == "wp-performance" {
+                let file = unpatched.appendingPathComponent(rule.file)
+                let text = try String(contentsOf: file, encoding: .utf8)
+                try text.replacingOccurrences(of: rule.replace, with: rule.find).write(to: file, atomically: true, encoding: .utf8)
+            }
+            try SkillUpdater.applyPatches(to: unpatched, id: "wp-performance")
+            let converged = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-performance"), to: unpatched)
+            check(!converged.changed && converged.files == 0,
+                  "depois dos patches, uma cópia do upstream fica igual à do pacote")
 
             try? FileManager.default.removeItem(at: root)
         } catch {

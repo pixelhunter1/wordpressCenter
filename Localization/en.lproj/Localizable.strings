@@ -571,3 +571,5 @@
 "O ficheiro de %@ não se abriu:\n%@" = "The file from %@ couldn’t be opened:\n%@";
 "Sem ligação ao GitHub: %@" = "No connection to GitHub: %@";
 "A aplicar aos sites…" = "Applying to the sites…";
+"A correção local a %@/%@ já não encontra o que corrige." = "The local patch to %@/%@ can no longer find what it fixes.";
+"A correção local a %@/%@ não encontrou o ficheiro." = "The local patch to %@/%@ couldn't find the file.";

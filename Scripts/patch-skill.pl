@@ -23,7 +23,9 @@ if ( @args && $args[0] eq '--json' ) {
     my $rules = JSON::PP->new->decode( do { local $/; <$rh> } );
     close $rh;
     for my $patch ( @{ $rules->{patches} } ) {
-        apply( "$root/$patch->{file}", $patch->{find}, $patch->{replace} );
+        # No build a raiz tem todas as skills: um ficheiro que falta é um erro (o upstream mudou o sítio?),
+        # não uma regra a ignorar.
+        apply( "$root/$patch->{skill}/$patch->{file}", $patch->{find}, $patch->{replace} );
     }
     exit 0;
 }

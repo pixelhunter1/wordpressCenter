@@ -80,6 +80,9 @@ PY
 # Patches locais às skills do upstream, a partir de Runtime/skills/patches.json — as mesmas regras que a app
 # aplica depois de trazer uma versão nova. Cada uma falha alto se o alvo desapareceu: uma skill meio corrigida
 # é pior do que um build que para.
+# Patches locais às skills do upstream, a partir de Runtime/skills/patches.json — as mesmas regras que a app aplica
+# depois de trazer uma versão nova, com o caminho relativo à pasta de cada skill. O patch-skill.pl para (e diz qual)
+# quando o ficheiro ou o texto a corrigir já não existem: uma skill meio corrigida é pior do que um build que falha.
 perl Scripts/patch-skill.pl --json Runtime/skills/patches.json "$R/skills"
 
 ICONSET=$(mktemp -d)/AppIcon.iconset

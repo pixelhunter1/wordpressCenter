@@ -39,8 +39,12 @@ Make every site a place where an AI agent can work correctly without being told:
   the app applies them to whatever it has just fetched — so an in-app update cannot silently undo them. Applying twice
   is harmless, and a rule whose target has disappeared is an error, not a warning.
 - **The engine is text-only territory.** The impeccable skill's compiled engine ships with the build; the button
-  never fetches a binary. When a fetched skill asks for a newer engine than the app carries, the update says so
-  instead of letting the skill's newer verbs fail later.
+  never fetches a binary, and a fetched copy of that skill inherits `scripts/bin` from the bundle, so an update
+  cannot leave a site without an engine. When a fetched skill asks for a newer engine than the app carries, the
+  update says so instead of letting the skill's newer verbs fail later.
+- **A patch names its skill.** Each rule in `patches.json` carries the skill id and a path relative to that skill's
+  folder, so the same rule serves the bundle, the copy fetched from GitHub (which sits at another depth in the
+  tarball) and the folder in a site. Without that, a rule silently applied nowhere.
 - **A copy in a site carries a stamp.** Each installed skill gets `.wpcenter-version` with the digest of what was put
   there; on every sync (site creation, a skill toggled, an update applied) a skill whose stamp matches the source is
   left alone and one that does not is replaced. If the folder's content is no longer what the app wrote — the user
