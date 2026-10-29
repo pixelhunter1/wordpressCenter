@@ -1772,14 +1772,15 @@ struct SkillUpdatesView: View {
                     Button("Tentar de novo") { Task { await updater.check() } }
                 }
                 Spacer()
-                Button(updater.phase == .done ? "Fechar" : "Cancelar") { dismiss() }
+                Button(dismissTitle) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                     .disabled(updater.phase == .checking || updater.phase == .applying)
-                if updater.phase == .ready {
+                // Só quando há o que aplicar: um botão "Atualizar" ao lado de "já está na versão mais recente"
+                // era o que fazia duvidar de qual dos dois valia.
+                if updater.phase == .ready, updater.changedSkills > 0 {
                     Button { Task { await updater.apply() } } label: { Text("Atualizar") }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
-                        .disabled(updater.changedSkills == 0)
                 }
             }
             .controlSize(.large)
@@ -1789,6 +1790,17 @@ struct SkillUpdatesView: View {
         .task { await updater.check() }
         .onDisappear { updater.discardStaged() }
         .interactiveDismissDisabled(updater.phase == .applying)
+    }
+
+    /// **Cancelar** só enquanto há o que cancelar: a lista de alterações à espera de confirmação, ou uma aplicação a
+    /// decorrer. Sem nada a aplicar — tudo já atualizado, concluído, erro — o botão é um **OK**, porque não se está a
+    /// desistir de nada.
+    private var dismissTitle: LocalizedStringKey {
+        switch updater.phase {
+        case .ready: return updater.changedSkills > 0 ? "Cancelar" : "OK"
+        case .applying: return "Cancelar"
+        case .idle, .checking, .done, .failed: return "OK"
+        }
     }
 
     @ViewBuilder private var content: some View {

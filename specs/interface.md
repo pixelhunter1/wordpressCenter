@@ -29,7 +29,9 @@ sites section. It renders and collects input; it decides nothing.
   with the same key, so the window and `wpc` cannot disagree (`cli`).
 - **Destructive or networked actions show their work first.** Definições → Habilidades opens a sheet that lists, per
   upstream, the commit it is on and the commit it would move to, with what changes per skill; nothing is fetched
-  beyond that click and nothing is applied until the user confirms (`agent-files`).
+  beyond that click and nothing is applied until the user confirms (`agent-files`). When the check finds nothing to
+  apply, the sheet says so and offers only to close — no disabled **Atualizar** next to it, because two buttons for
+  one state read as a contradiction.
 - **The menu bar extra is optional** (`Prefs.showMenuBarKey`), for starting and stopping a site without the window;
   the window keeps the site list, the commands (⌘N for a new site) and the settings.
 
