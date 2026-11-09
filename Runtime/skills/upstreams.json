@@ -4,7 +4,7 @@
   "upstreams": {
     "wordpress": {
       "repo": "WordPress/agent-skills",
-      "ref": "eff3785fc28c4380d172094518c66a6a997c95d4",
+      "ref": "7374e6f1c913b3b02b25465d266d9c0e0a04fc96",
       "license": "GPL-2.0-or-later",
       "skills": [
         {
@@ -39,7 +39,7 @@
     },
     "studio": {
       "repo": "Automattic/studio",
-      "ref": "8e8d07f48cb46ca20723e990aba8cd8bff119e52",
+      "ref": "53279403d62f9a8fb1613f9abb1f2be6235bcc4a",
       "license": "GPL-2.0-or-later",
       "skills": [
         {
@@ -54,7 +54,7 @@
     },
     "mengto": {
       "repo": "MengTo/Skills",
-      "ref": "a45892d2fdadab75b31fb16abecc02f101b31c43",
+      "ref": "d6324a05ca03ce5f6cdba519318d92176dbc43d2",
       "license": "MIT",
       "skills": [
         {
@@ -73,7 +73,7 @@
     },
     "impeccable": {
       "repo": "pbakaus/impeccable",
-      "ref": "5e745ace7e151feb2a93d360d0281fe39448b857",
+      "ref": "b7d1a80481e4b126231dc71121bdfa8674fe8282",
       "license": "Apache-2.0",
       "skills": [
         {
@@ -85,7 +85,7 @@
       "engine": {
         "asset": "impeccable-darwin-arm64",
         "install": "Vendor/impeccable",
-        "version": "0.1.18"
+        "version": "0.1.19"
       }
     }
   }
