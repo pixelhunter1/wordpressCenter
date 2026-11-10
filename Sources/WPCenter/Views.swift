@@ -1756,7 +1756,7 @@ private struct SkillsSettings: View {
 /// O painel do botão das Habilidades: mostra o que mudou no GitHub, por upstream, e só aplica se o utilizador mandar.
 struct SkillUpdatesView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var updater = SkillUpdater()
+    @ObservedObject private var updater = SkillUpdater.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {

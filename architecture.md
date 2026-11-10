@@ -65,8 +65,10 @@ the map above is the intended boundary rather than the file layout. *Unconfirmed
 
 ## Invariants
 
-1. **localhost only.** No runtime connection leaves the Mac except three things the user starts: a share tunnel, a
-   connected live site, and the skills update (which only fetches skill text from GitHub, never a binary). Live sites
+1. **localhost only.** No runtime connection leaves the Mac except three things: a share tunnel and a connected live
+   site, both started by the user, and the skills update, which runs at launch at most once a day and from the
+   Skills button. It fetches skill text from GitHub plus the one binary the impeccable skill pins, accepted only
+   if it matches that skill's own `engine-checksums.txt`. Live sites
    are HTTPS-only, with `localhost`/`127.0.0.1` allowed for testing. Auto-sign-in refuses any request carrying
    `CF-Connecting-IP`, so a share link can never mint a session.
 2. **Every process has an owner.** A site server is either a child process of this app or a port bound by the

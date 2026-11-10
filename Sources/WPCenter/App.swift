@@ -98,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in await SiteStore.shared.applyLaunchBehavior() }
+        Task { @MainActor in await SkillUpdater.shared.updateInBackground() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -173,6 +174,12 @@ enum SelfTest {
             let same = SkillUpdater.changedFiles(from: Runtime.skills.appendingPathComponent("wp-center"),
                                                  to: Runtime.skills.appendingPathComponent("wp-center"))
             check(!same.changed && same.files == 0, "uma skill igual a si mesma não conta como alterada")
+
+            // O motor que a atualização traz só é aceite com o digest da linha certa do engine-checksums.txt da skill.
+            let sums = "# comentário\n0.1.22 impeccable-darwin-x64 aaa\n0.1.22 impeccable-darwin-arm64 BBB\r\n"
+            check(SkillUpdater.engineDigest(in: sums, version: "0.1.22", asset: "impeccable-darwin-arm64") == "bbb"
+                  && SkillUpdater.engineDigest(in: sums, version: "0.1.19", asset: "impeccable-darwin-arm64") == nil,
+                  "o digest do motor vem da linha da versão e do asset certos")
 
             // Regressão: o enumerador devolve /private/var/… para uma raiz em /var/… — uma cópia igual à origem na
             // pasta temporária (onde os tarballs são abertos) não pode parecer toda diferente.

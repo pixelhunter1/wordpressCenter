@@ -353,10 +353,10 @@ final class SiteStore: ObservableObject {
         return engineVersionWarning()
     }
 
-    /// A versão do motor que a app traz (carimbada pelo build no manifesto) e a que a skill agora pede
-    /// (`scripts/VERSION`). O motor vai no build: se a skill andar mais depressa, é preciso compilar de novo.
+    /// A versão do motor que está a valer (a do manifesto da fonte ativa: o build carimba a sua, a atualização a que
+    /// trouxe) e a que a skill agora pede (`scripts/VERSION`). Só diferem se a atualização não trouxe o motor.
     func engineVersionWarning() -> String? {
-        guard let installed = (try? SkillUpdater.bundleManifest())?.engineVersion,
+        guard let installed = (try? SkillUpdater.manifest(at: skillsRoot.appendingPathComponent("upstreams.json")))?.engineVersion,
               let wanted = try? String(contentsOf: skillSource("impeccable").appendingPathComponent("scripts/VERSION"), encoding: .utf8)
         else { return nil }
         let wantedVersion = wanted.trimmingCharacters(in: .whitespacesAndNewlines)

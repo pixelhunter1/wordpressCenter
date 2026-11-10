@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // MARK: - Manifesto dos upstreams
@@ -50,10 +51,14 @@ struct SkillPatchRules: Decodable {
 /// Procura versões novas das skills no GitHub e, se o utilizador mandar, trazê-las para
 /// `~/Library/Application Support/WP Center/skills/` — o pacote da app é assinado e só de leitura.
 ///
-/// Esta é a terceira ligação para fora do Mac, e acontece só quando o utilizador carrega: as outras duas são a
-/// partilha de um site e os sites live (`architecture`, invariante 1).
+/// Esta é a terceira ligação para fora do Mac: ao abrir a app (uma vez por dia) e quando o utilizador carrega no
+/// botão. As outras duas são a partilha de um site e os sites live (`architecture`, invariante 1).
 @MainActor
 final class SkillUpdater: ObservableObject {
+    /// Uma só instância para o arranque e para o painel: assim as duas nunca procuram nem aplicam ao mesmo tempo.
+    static let shared = SkillUpdater()
+    private static let checkedAtKey = "skillsCheckedAt"
+
     enum Phase: Equatable {
         case idle, checking, ready, applying, done
         case failed(String)
@@ -87,6 +92,8 @@ final class SkillUpdater: ObservableObject {
         let key: String
         let sha: String
         let root: URL
+        /// O motor do impeccable que a skill nova pede, já descarregado e conferido (nil: serve o do pacote).
+        let engine: (version: String, binary: URL)?
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -98,6 +105,17 @@ final class SkillUpdater: ObservableObject {
     var changedSkills: Int { upstreams.reduce(0) { $0 + $1.changed } }
 
     // MARK: Procurar
+
+    /// Ao abrir a app, no máximo uma vez por dia: procura e aplica sozinha, sem perguntar. Sem rede ou com erro não
+    /// grava a data, e tenta outra vez no próximo arranque.
+    func updateInBackground() async {
+        if let last = UserDefaults.standard.object(forKey: Self.checkedAtKey) as? Date, Date().timeIntervalSince(last) < 86_400 { return }
+        await check()
+        guard phase == .ready else { return }
+        if changedSkills > 0 { await apply() } else { discardStaged() }
+        if case .failed = phase { return }
+        UserDefaults.standard.set(Date(), forKey: Self.checkedAtKey)
+    }
 
     func check() async {
         guard phase != .checking, phase != .applying else { return }
@@ -111,7 +129,7 @@ final class SkillUpdater: ObservableObject {
             for (key, upstream) in manifest.upstreams.sorted(by: { $0.key < $1.key }) {
                 let sha = try await Self.latestCommit(of: upstream.repo)
                 let root = try await Self.download(upstream.repo, sha)
-                staged.append(Staged(key: key, sha: sha, root: root))
+                staged.append(Staged(key: key, sha: sha, root: root, engine: try await Self.fetchEngine(upstream, root: root)))
                 var skills: [SkillChange] = []
                 for item in upstream.skills {
                     let from = SiteStore.shared.skillSource(item.id)
@@ -159,6 +177,15 @@ final class SkillUpdater: ObservableObject {
                     try? FileManager.default.removeItem(at: target)
                     try FileManager.default.copyItem(at: source, to: target)
                     Self.carryBundledExtras(from: item.id, to: target)
+                    if item.engine == true, let engine = staged.engine {
+                        let folder = target.appendingPathComponent("scripts/bin/darwin-arm64")
+                        let binary = folder.appendingPathComponent("impeccable")
+                        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                        try? FileManager.default.removeItem(at: binary)
+                        try FileManager.default.copyItem(at: engine.binary, to: binary)
+                        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+                        upstream.engine?.version = engine.version
+                    }
                     try Self.applyPatches(to: target, id: item.id)
                     // Atribuição: a licença do upstream viaja com a skill, como no Scripts/update-skills.sh.
                     for legal in ["LICENSE", "NOTICE.md"] {
@@ -247,7 +274,42 @@ final class SkillUpdater: ObservableObject {
         try? FileManager.default.copyItem(at: bundled, to: destination)
     }
 
+    /// A linha `<versão> <asset> <sha256>` do `engine-checksums.txt` da skill: o único digest em que se confia, como no
+    /// lançador e no Scripts/update-skills.sh — nunca o `.sha256` publicado ao lado do binário.
+    nonisolated static func engineDigest(in checksums: String, version: String, asset: String) -> String? {
+        for line in checksums.split(whereSeparator: \.isNewline) {
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            if fields.count >= 3, fields[0] == version, fields[1] == asset { return fields[2].lowercased() }
+        }
+        return nil
+    }
+
     // MARK: - Rede (só aqui)
+
+    /// O motor que a skill nova pede (`scripts/VERSION`), quando não é o que vem no pacote. Sem ele a cópia atualizada
+    /// levava o motor antigo, que o lançador da skill recusa — e ia buscar outro ao GitHub sozinho, a meio do trabalho
+    /// de um agente. Descarrega-se aqui, junto com o resto, para uma falha não deixar nada aplicado a meio.
+    private static func fetchEngine(_ upstream: SkillManifest.Upstream, root: URL) async throws -> (version: String, binary: URL)? {
+        guard let asset = upstream.engine?.asset, let item = upstream.skills.first(where: { $0.engine == true }) else { return nil }
+        let scripts = root.appendingPathComponent(item.path).appendingPathComponent("scripts")
+        let wanted = ((try? String(contentsOf: scripts.appendingPathComponent("VERSION"), encoding: .utf8)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty, wanted != upstream.engine?.version else { return nil }
+        let checksums = (try? String(contentsOf: scripts.appendingPathComponent("engine-checksums.txt"), encoding: .utf8)) ?? ""
+        guard let expected = engineDigest(in: checksums, version: wanted, asset: asset),
+              let url = URL(string: "https://github.com/\(upstream.repo)/releases/download/engine-v\(wanted)/\(asset)")
+        else { throw AppError("A skill \(item.id) pede o motor \(wanted), mas não traz o digest dele.") }
+        let (data, response) = try await send(URLRequest(url: url))
+        guard (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else {
+            throw AppError("Não consegui descarregar o motor \(wanted) de \(upstream.repo).")
+        }
+        guard SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == expected else {
+            throw AppError("O motor \(wanted) descarregado não confere com o digest publicado.")
+        }
+        let binary = root.appendingPathComponent(".wpcenter-engine")
+        try data.write(to: binary)
+        return (wanted, binary)
+    }
 
     /// O último commit do ramo principal, pela API do GitHub — sem `git` instalado e sem chave.
     private static func latestCommit(of repo: String) async throws -> String {
