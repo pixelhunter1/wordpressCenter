@@ -44,11 +44,11 @@
       "skills": [
         {
           "id": "need-for-speed",
-          "path": "packages/agent/node/skills/need-for-speed"
+          "path": "packages/agent/shared/skills/need-for-speed"
         },
         {
           "id": "rank-me-up",
-          "path": "packages/agent/node/skills/rank-me-up"
+          "path": "packages/agent/shared/skills/rank-me-up"
         }
       ]
     },
